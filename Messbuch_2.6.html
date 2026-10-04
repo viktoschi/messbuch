@@ -11,12 +11,14 @@
   --bg:#F3F2F6; --surface:#fff; --ink:#1D1A24; --muted:#6B6577;
   --plum:#4B2E5C; --onPlum:#fff; --tape:#F2C12E; --ok:#2E7D4F;
   --warn:#96600F; --bad:#B3261E; --line:#DAD6E0; --feld:#857E92;
+  --badBg:#FCEAE7; --warnBg:#FAEFD3; --onBad:#fff; --onWarn:#fff;
 }
 html{color-scheme:light}
 html[data-theme="dark"]{
   --bg:#16121B; --surface:#211B29; --ink:#EDE9F2; --muted:#A79FB4;
   --plum:#CBA7E3; --onPlum:#241B2C; --ok:#7BD3A2;
   --warn:#E0AE55; --bad:#F08B84; --line:#352C40; --feld:#75698A; --tape:#D4A82A;
+  --badBg:#3C2128; --warnBg:#372C1D; --onBad:#2B1214; --onWarn:#2A1F08;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
@@ -102,14 +104,16 @@ button.breit{display:block;width:100%;margin-top:8px}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px}
 .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)}
 .dot.bad{background:var(--bad)} .dot.open{background:var(--muted)}
-/* Auffällige Maße: das Kürzel (K1 = Konflikt 1, P1 = prüfen 1) steht an der Prüfung und an
-   jeder Karte, die sie betrifft. Rand per box-shadow, damit sich beim Tippen nichts verschiebt. */
-.kz{display:inline-block;padding:0 7px;margin-right:3px;border:1.5px solid;border-radius:999px;
-  font-size:13px;font-weight:700;line-height:1.5;font-variant-numeric:tabular-nums;vertical-align:1px}
-.kz.bad{color:var(--bad)} .kz.warn{color:var(--warn)}
-.kennung .kz{margin:0 0 0 8px}
-.card.auff-bad{border-color:var(--bad);box-shadow:inset 5px 0 0 var(--bad)}
-.card.auff-warn{border-color:var(--warn);box-shadow:inset 5px 0 0 var(--warn)}
+/* Auffällige Maße: Karten und Prüfungen mit Konflikt rot, mit „prüfen“ gelb hinterlegt. Das
+   Kürzel (K1 = Konflikt 1, P1 = prüfen 1) steht an der Prüfung und oben auf jeder Karte, die sie
+   betrifft – gleiches Kürzel = Maße, die zusammenhängen. Rand per box-shadow, das verschiebt nichts. */
+.kz{display:inline-block;padding:0 8px;margin-right:4px;border-radius:999px;font-size:14px;font-weight:700;
+  line-height:1.5;font-variant-numeric:tabular-nums;vertical-align:1px}
+.kz.bad{background:var(--bad);color:var(--onBad)} .kz.warn{background:var(--warn);color:var(--onWarn)}
+.card.auff-bad,.check.bad{background:var(--badBg);border-color:var(--bad)}
+.card.auff-warn,.check.warn{background:var(--warnBg);border-color:var(--warn)}
+.card.auff-bad{box-shadow:inset 5px 0 0 var(--bad)} .card.auff-warn{box-shadow:inset 5px 0 0 var(--warn)}
+.indexliste{display:flex;flex-direction:column;gap:6px;margin:4px 0 10px}
 .auffaellig{margin-top:12px;padding-top:8px;border-top:1px dashed var(--line)}
 .auffaellig .eintrag{margin-top:8px}
 button.pruefsprung{display:block;width:100%;text-align:left;min-height:44px;padding:9px 12px;
@@ -1421,8 +1425,6 @@ function karte(x){
   const k = el("div","kennung", kennungText(x));
   if(inDatei(x)) k.appendChild(el("span","marke","Maßdatei"));
   if(ARMLOCH[x.id]) k.appendChild(el("span","marke arm","Armloch/Ärmel"));
-  const kz = el("span"); kz.id = "kz_" + x.id;    // Kürzel der auffälligen Prüfungen, füllt markierungenZeichnen()
-  k.appendChild(kz);
   c.appendChild(k);
   const fuer = (DATEN.schnitte || {})[x.id];
   if(fuer){
@@ -1431,6 +1433,9 @@ function karte(x){
     sc.appendChild(document.createTextNode(fuer.join(", ")));
     c.appendChild(sc);
   }
+  // Index der auffälligen Prüfungen (K1, P1 …) mit den zusammenhängenden Maßen, füllt markierungenZeichnen()
+  const idx = el("div","indexliste"); idx.id = "idx_" + x.id; idx.hidden = true;
+  c.appendChild(idx);
   const an = el("div");                          // Anleitung immer zuerst
   x.tip.split(/(\s*\([^()]*S\.\s*\d[^()]*\))/).forEach(function(t, i){
     if(!t) return;
@@ -1694,8 +1699,8 @@ function pruefboxInhalt(box){
 
 /* ── Auffällige Maße ──────────────────────────────────────
    Jede Prüfung mit Konflikt oder „prüfen“ nennt die Maße, die sie betrifft. Deren Karten
-   bekommen einen farbigen Rand, oben das Kürzel der Prüfung und unter den Feldern die
-   Prüfung samt den anderen beteiligten Maßen – jeweils zum Hinspringen. */
+   werden rot bzw. gelb hinterlegt, oben steht das Kürzel der Prüfung mit den Maßen, die
+   damit zusammenhängen, und unter den Feldern die Prüfung samt Sprungknöpfen zu diesen Maßen. */
 function betroffene(p){
   if(p.status !== "BAD" && p.status !== "WARN") return [];
   return p.ids.filter(function(id){ return BY[id] && hat(id); });
@@ -1725,24 +1730,31 @@ function markierungenZeichnen(){
   });
   M.forEach(function(x){
     const c = document.getElementById("karte_" + x.id);
-    const kz = document.getElementById("kz_" + x.id), box = document.getElementById("auff_" + x.id);
-    if(!c || !kz || !box) return;
+    const idx = document.getElementById("idx_" + x.id), box = document.getElementById("auff_" + x.id);
+    if(!c || !idx || !box) return;
     const liste = je[x.id] || [];
     const bad = liste.some(function(p){ return p.status === "BAD"; });
     c.classList.toggle("auff-bad", bad);
     c.classList.toggle("auff-warn", !bad && liste.length > 0);
-    kz.innerHTML = ""; box.innerHTML = ""; box.hidden = !liste.length;
+    idx.innerHTML = ""; idx.hidden = !liste.length;
+    box.innerHTML = ""; box.hidden = !liste.length;
     if(!liste.length) return;
     box.appendChild(el("div","hint","Auffällig in den Kreuzprüfungen:"));
     liste.forEach(function(p){
-      kz.appendChild(kuerzel(p));
+      const st = p.status.toLowerCase(), zur = function(){ springe("pruefung_" + p.nr); };
+      const andere = einzeln(p) ? [] : betroffene(p).filter(function(id){ return id !== x.id; });
+      // oben: Index mit den Maßen, die damit zusammenhängen
+      const z = knopf("pruefsprung " + st, null, zur);
+      z.appendChild(kuerzel(p));
+      z.appendChild(document.createTextNode(" " + (andere.length ? "zusammen mit " + andere.map(nm).join(" · ") : p.title)));
+      idx.appendChild(z);
+      // unter den Feldern: die Prüfung und Sprungknöpfe zu den anderen Maßen
       const e = el("div","eintrag");
-      const b = knopf("pruefsprung " + p.status.toLowerCase(), null, function(){ springe("pruefung_" + p.nr); });
+      const b = knopf("pruefsprung " + st, null, zur);
       b.appendChild(kuerzel(p));
       b.appendChild(document.createTextNode(" " + (p.status === "BAD" ? "Konflikt: " : "Prüfen: ") + p.title));
       e.appendChild(b);
-      const andere = betroffene(p).filter(function(id){ return id !== x.id; });
-      if(andere.length && !einzeln(p)) e.appendChild(massKnoepfe(andere, "Zusammen mit:"));
+      if(andere.length) e.appendChild(massKnoepfe(andere, "Zusammen mit:"));
       box.appendChild(e);
     });
   });
