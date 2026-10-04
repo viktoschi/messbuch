@@ -13,34 +13,40 @@ Identifiers, comments and UI text are German; keep it that way.
 
 ## Working with the file — read this first
 
-The file is ~12.5 MB but only ~1800 lines. **Line 198 alone is ~12.4 MB**: `const DATEN = {...};` as one line of
-JSON with 131 base64 images. Never `Read`/`cat`/`grep` without limits on the whole file or print line 198 — use
-line ranges that skip it, `cut -c1-200`, or parse the data with Node:
+The file is ~12.5 MB but only ~1950 lines, with **CRLF line endings** (keep them; scripts that write the file must
+emit `\r\n`). **One line alone is ~12.4 MB**: `const DATEN = {...};`, the first line of the `<script>` block, holding
+JSON with 131 base64 images. Never `Read`/`cat`/`grep` without limits on the whole file or print that line — use line
+ranges that skip it, `cut -c1-200`, or parse the data with Node. Line numbers shift with edits, so look them up:
 
 ```bash
-# Layout: CSS ≈ 9–163, HTML skeleton ≈ 164–196, DATEN = 198, app script ≈ 199–1816
-sed -n '199,400p' Messbuch_2.6.html
+D=$(grep -n -m1 '^const DATEN = ' Messbuch_2.6.html | cut -d: -f1)   # CSS and HTML skeleton above, app code below
 grep -n 'function ' Messbuch_2.6.html | cut -c1-160
 
 # Inspect/modify DATEN
-node -e 'const fs=require("fs");const L=fs.readFileSync("Messbuch_2.6.html","utf8").split("\n");
-const D=JSON.parse(L[197].replace(/^const DATEN = /,"").replace(/;\s*$/,""));
+node -e 'const fs=require("fs");const L=fs.readFileSync("Messbuch_2.6.html","utf8").split("\r\n");
+const i=L.findIndex(l=>l.startsWith("const DATEN = "));
+const D=JSON.parse(L[i].replace(/^const DATEN = /,"").replace(/;\s*$/,""));
 console.log(Object.keys(D))'
 ```
 
-When changing DATEN, rewrite line 198 as `const DATEN = ` + `JSON.stringify(D)` + `;` (one line) and keep all other
+When changing DATEN, rewrite that line as `const DATEN = ` + `JSON.stringify(D)` + `;` (one line) and keep all other
 lines byte-identical.
 
 ## Verification (there are no tests)
 
 ```bash
 # Syntax check of the script block
-awk 'NR>=198 && NR<=1816' Messbuch_2.6.html > /tmp/app.js && node --check /tmp/app.js
+A=$(grep -n $'^<script>\r$' Messbuch_2.6.html | cut -d: -f1); B=$(grep -n $'^</script>\r$' Messbuch_2.6.html | cut -d: -f1)
+awk -v a=$A -v b=$B 'NR>a && NR<b' Messbuch_2.6.html > /tmp/app.js && node --check /tmp/app.js
 ```
 
-For behaviour, load the page in headless Chromium via Playwright (`file://` URL, phone-sized viewport), collect
-`pageerror`/console errors, fill an input and check `#count`, `#pruefbox` and the export. Chromium is preinstalled
-at `/opt/pw-browsers/chromium`.
+For behaviour, load the page in headless Chromium via Playwright (`file://` URL, phone-sized viewport), seed
+`localStorage["messbuch_html_v1"]` with `{state:{…}}` via `addInitScript`, collect `pageerror`/console errors, fill an
+input and check `#count`, `#pruefbox` and the export. Chromium is preinstalled at `/opt/pw-browsers/chromium`.
+To mimic iOS Safari (no scroll anchoring), inject `*{overflow-anchor:none !important}`.
+
+When touching a check in `pruefungen()`, compare its results (title/kind/status/text) against
+`git show HEAD:Messbuch_2.6.html` over many randomly perturbed states — statuses must not change by accident.
 
 ## Data (`DATEN`)
 
@@ -66,9 +72,22 @@ at `/opt/pw-browsers/chromium`.
 - **Rendering**: no framework. `zeichne()` rebuilds `#main` completely from DATEN + state; helpers `el()`, `knopf()`,
   `karte()` (one measure card). Small updates go through `werteInKarte()`, `pillsZeichnen()`, `menueZeichnen()`.
   Overlays (menu, image zoom, dialog) use `overlayAuf()`/`overlayZu()` with history entries so Android "back" closes them.
-- **Cross-checks**: `pruefungen()` is a long list of self-contained IIFEs, each calling
-  `add(title, kind, status, text)` with status `OK | WARN | BAD | OPEN`. Use `mittel()`, `voll()`, `nm()`/`namen()`,
-  `f1()`; emit `OPEN` (with what's needed) when inputs are missing. Results drive the header pills and menu.
+- **Cross-checks**: `pruefungen()` is a long list of self-contained checks, each calling
+  `add(title, kind, status, text[, ids])` **exactly once** with status `OK | WARN | BAD | OPEN`. Use `mittel()`,
+  `voll()`, `nm()`/`namen()`, `f1()`; emit `OPEN` (with what's needed) when inputs are missing. The result list is
+  sorted BAD → WARN → OPEN → OK; each entry carries `nr` (stable check number → element id `pruefung_<nr>`), `ids`
+  (affected measures) and, for BAD/WARN, `zeichen` (`K1…` / `P1…`).
+- **Affected measures**: without an explicit `ids` argument, `add()` uses every measure the check read through
+  `werte()` since the previous `add()` (tracked in `gelesen`). Pass an explicit list when only part of what was read is
+  at fault (ordered chains, per-item lists, values read only for the explanation text), and `[]` for fit hints that
+  don't doubt a measurement. Kinds `Richtwert`/`Messqualität` judge each measure on its own (`einzeln()`), so their
+  measures aren't shown as belonging together.
+- **Marking & navigation**: `markierungenZeichnen()` gives affected cards a coloured edge, the K/P chips (`kz_<id>`)
+  and, below the inputs, the checks plus the other measures involved (`auff_<id>`); `pruefboxInhalt()` adds jump
+  buttons from each check to its measures. Always jump with `springe(id)`: images are `loading="lazy"` without a
+  reserved size and shift the page while loading, and Safari has no scroll anchoring, so `halte()` (ResizeObserver
+  on `#main`) re-aligns the target until the user touches, scrolls or types. `kopfAktualisieren()` likewise keeps the
+  focused input in place when markings above it change.
 - **Shoulder slope**: `winkel()` derives `shoulder_slope_neck_side_angle` from depth/drop, falling back to heights;
   exported rounded to 0.5°.
 - **`.smis` export**: `baueSmis()` either fills `defaults` into `templateHead`, or — if the user imported their own

@@ -102,6 +102,23 @@ button.breit{display:block;width:100%;margin-top:8px}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px}
 .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)}
 .dot.bad{background:var(--bad)} .dot.open{background:var(--muted)}
+/* Auffällige Maße: das Kürzel (K1 = Konflikt 1, P1 = prüfen 1) steht an der Prüfung und an
+   jeder Karte, die sie betrifft. Rand per box-shadow, damit sich beim Tippen nichts verschiebt. */
+.kz{display:inline-block;padding:0 7px;margin-right:3px;border:1.5px solid;border-radius:999px;
+  font-size:13px;font-weight:700;line-height:1.5;font-variant-numeric:tabular-nums;vertical-align:1px}
+.kz.bad{color:var(--bad)} .kz.warn{color:var(--warn)}
+.kennung .kz{margin:0 0 0 8px}
+.card.auff-bad{border-color:var(--bad);box-shadow:inset 5px 0 0 var(--bad)}
+.card.auff-warn{border-color:var(--warn);box-shadow:inset 5px 0 0 var(--warn)}
+.auffaellig{margin-top:12px;padding-top:8px;border-top:1px dashed var(--line)}
+.auffaellig .eintrag{margin-top:8px}
+button.pruefsprung{display:block;width:100%;text-align:left;min-height:44px;padding:9px 12px;
+  font-size:15px;line-height:1.35;background:transparent;color:var(--ink);border:1px solid var(--line)}
+button.pruefsprung.bad{border-color:var(--bad)} button.pruefsprung.warn{border-color:var(--warn)}
+.sprungzeile{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px}
+.sprungzeile .hint{margin:0;flex-basis:100%}
+button.masssprung{min-height:44px;padding:8px 12px;font-size:15px;line-height:1.3;border-radius:999px;
+  border:1px solid var(--feld);background:transparent;color:var(--plum);text-align:left}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border:1px solid var(--line);
   border-radius:8px;padding:12px;font:15px/1.5 ui-monospace,Consolas,monospace}
 details{margin:6px 0}
@@ -158,7 +175,7 @@ button.menuezeile{display:flex;justify-content:space-between;gap:10px;width:100%
   .card{padding:12px}
   .bar{padding:7px 10px} .pills{padding:0 10px 7px}
 }
-@media print{header,#zoom,#menue,#menueschleier,#dialog,.pills,.mehr,button{display:none}}
+@media print{header,#zoom,#menue,#menueschleier,#dialog,.pills,.mehr,button,.auffaellig,.sprungzeile{display:none}}
 </style>
 </head>
 <body>
@@ -358,7 +375,9 @@ function zahl(s){
   if(t === "") return NaN;
   const v = Number(t); return isFinite(v) ? v : NaN;
 }
+let gelesen = null;   // während pruefungen(): die Maße, die die laufende Prüfung liest
 function werte(id){
+  if(gelesen) gelesen[id] = true;
   const r = state[id] || ["","",""];
   return r.map(zahl).filter(v => !isNaN(v));
 }
@@ -404,7 +423,15 @@ function winkelWeg(){
 /* ── Die Kreuzprüfungen ──────────────────────────────── */
 function pruefungen(){
   const R = [];
-  const add = (t,k,s,x) => R.push({title:t,kind:k,status:s,text:x});
+  // Jede Prüfung ruft add() genau einmal; nr bleibt dadurch über alle Durchläufe gleich.
+  // ids = die betroffenen Maße für die Markierung: ohne eigene Liste alle, die die Prüfung
+  // seit dem letzten add() gelesen hat. Fällt nur ein Teil davon auf, steht die Liste beim add().
+  gelesen = {};
+  const add = (t,k,s,x,ids) => {
+    R.push({nr:R.length, title:t, kind:k, status:s, text:x,
+            ids:(ids || Object.keys(gelesen)).filter((v,i,a) => a.indexOf(v) === i)});
+    gelesen = {};
+  };
 
   // 1
   (function(){
@@ -415,7 +442,8 @@ function pruefungen(){
     for(let i=1;i<seq.length;i++){
       if(mittel(seq[i]) >= mittel(seq[i-1])){
         add("Höhen fallen von oben nach unten","Geometrie","BAD",
-          nm(seq[i])+" ("+f1(mittel(seq[i]))+") liegt nicht unter "+nm(seq[i-1])+" ("+f1(mittel(seq[i-1]))+").");
+          nm(seq[i])+" ("+f1(mittel(seq[i]))+") liegt nicht unter "+nm(seq[i-1])+" ("+f1(mittel(seq[i-1]))+").",
+          [seq[i-1], seq[i]]);
         return;
       }
     }
@@ -525,12 +553,13 @@ function pruefungen(){
     }
     const dh = mittel("height_neck_side")-mittel("x_height_shoulder_tip");
     const l = mittel("shoulder_length");
-    if(dh <= 0){ add("Schulterneigung","Geometrie","BAD","Die Schulterspitze liegt nicht unter dem Halspunkt ("+f1(dh)+" cm)."); return; }
-    if(dh >= l){ add("Schulterneigung","Geometrie","BAD","Der Höhenunterschied ("+f1(dh)+" cm) ist größer als die Schulterlänge ("+f1(l)+" cm) – das geht geometrisch nicht."); return; }
+    const betr = ["height_neck_side","x_height_shoulder_tip","shoulder_length"];   // nicht Tiefe/Abfall, die hier fehlen
+    if(dh <= 0){ add("Schulterneigung","Geometrie","BAD","Die Schulterspitze liegt nicht unter dem Halspunkt ("+f1(dh)+" cm).",betr.slice(0,2)); return; }
+    if(dh >= l){ add("Schulterneigung","Geometrie","BAD","Der Höhenunterschied ("+f1(dh)+" cm) ist größer als die Schulterlänge ("+f1(l)+" cm) – das geht geometrisch nicht.",betr); return; }
     const w = Math.asin(dh/l)*180/Math.PI;
     add("Schulterneigung","Geometrie",(w>=12 && w<=28)?"OK":(w>=8 && w<=34)?"WARN":"BAD",
       "Höhenunterschied "+f1(dh)+" cm auf "+f1(l)+" cm Schulterlänge ergibt "+f1(w)+
-      "°. Gerechnet aus zwei Bodenhöhen – genauer wird es mit Schultertiefe und Schulterabfall (Buch S. 48). Üblich sind etwa 15–25°.");
+      "°. Gerechnet aus zwei Bodenhöhen – genauer wird es mit Schultertiefe und Schulterabfall (Buch S. 48). Üblich sind etwa 15–25°.",betr);
   })();
 
   // 10
@@ -560,9 +589,10 @@ function pruefungen(){
   else{
     const w = mittel("waist_circ"), h = mittel("highhip_circ"), p = mittel("hip_circ");
     if(!(w < p)) add("Taille, Beckenkamm, Hüfte","Geometrie","BAD",
-      "Die Taille ("+f1(w)+") ist nicht kleiner als die Hüfte ("+f1(p)+").");
+      "Die Taille ("+f1(w)+") ist nicht kleiner als die Hüfte ("+f1(p)+").",["waist_circ","hip_circ"]);
     else if(h > p+1) add("Taille, Beckenkamm, Hüfte","Geometrie","WARN",
-      "Der Beckenkamm ("+f1(h)+") ist größer als die Hüfte ("+f1(p)+") – möglich, aber prüfen, ob die Hüfte an der weitesten Stelle gemessen ist.");
+      "Der Beckenkamm ("+f1(h)+") ist größer als die Hüfte ("+f1(p)+") – möglich, aber prüfen, ob die Hüfte an der weitesten Stelle gemessen ist.",
+      ["highhip_circ","hip_circ"]);
     else add("Taille, Beckenkamm, Hüfte","Geometrie","OK",f1(w)+" < "+f1(h)+" ≤ "+f1(p)+" cm.");
   }
 
@@ -572,8 +602,8 @@ function pruefungen(){
   else{
     const b = mittel("x_belly_circ"), w = mittel("waist_circ"), h = mittel("highhip_circ");
     const lo = Math.min(w,h), hi = Math.max(w,h);
-    if(b > hi+1) add("Bauch gegen Rockbund","Passform","WARN",
-      "Der Bauch ("+f1(b)+" cm) ist größer als Taille und Beckenkamm. Der Rockbund würde dort stärker drücken als geplant – den Bund an dieser Stelle weiter planen.");
+    if(b > hi+1) add("Bauch gegen Rockbund","Passform","WARN",      // Hinweis zum Schnitt, kein Messfehler: nichts markieren
+      "Der Bauch ("+f1(b)+" cm) ist größer als Taille und Beckenkamm. Der Rockbund würde dort stärker drücken als geplant – den Bund an dieser Stelle weiter planen.",[]);
     else add("Bauch gegen Rockbund","Passform","OK",
       "Der Bauch ("+f1(b)+" cm) liegt zwischen "+f1(lo)+" und "+f1(hi)+" cm, der Rockbund passt dazu.");
   }
@@ -585,15 +615,15 @@ function pruefungen(){
     if(!voll.apply(null, ids)){
       add("Oberschenkel, Knie, Wade, Knöchel","Geometrie","OPEN","Braucht alle sechs Beinumfänge."); return; }
     const v = ids.map(mittel), tu=v[0], tm=v[1], k=v[2], ks=v[3], c=v[4], a=v[5];
-    const hart = [], weich = [];
-    if(!(tu>tm)) hart.push("Oberschenkel oben ≤ Mitte");
-    if(!(tm>k)) hart.push("Oberschenkel Mitte ≤ Knie");
-    if(!(c>a)) hart.push("Wade ≤ über dem Knöchel");
-    if(!(ks <= k+0.5)) weich.push("unter dem Knie größer als am Knie");
-    if(!(c>ks)) weich.push("Wade ≤ unter dem Knie");
-    if(hart.length) add("Oberschenkel, Knie, Wade, Knöchel","Geometrie","BAD",hart.join("; ")+".");
+    const hart = [], weich = [], hartIds = [], weichIds = [];
+    if(!(tu>tm)){ hart.push("Oberschenkel oben ≤ Mitte"); hartIds.push(ids[0],ids[1]); }
+    if(!(tm>k)){ hart.push("Oberschenkel Mitte ≤ Knie"); hartIds.push(ids[1],ids[2]); }
+    if(!(c>a)){ hart.push("Wade ≤ über dem Knöchel"); hartIds.push(ids[4],ids[5]); }
+    if(!(ks <= k+0.5)){ weich.push("unter dem Knie größer als am Knie"); weichIds.push(ids[3],ids[2]); }
+    if(!(c>ks)){ weich.push("Wade ≤ unter dem Knie"); weichIds.push(ids[4],ids[3]); }
+    if(hart.length) add("Oberschenkel, Knie, Wade, Knöchel","Geometrie","BAD",hart.join("; ")+".",hartIds);
     else if(weich.length) add("Oberschenkel, Knie, Wade, Knöchel","Geometrie","WARN",
-      weich.join("; ")+". Das Buch nennt das keine feste Regel (S. 112) – einmal nachmessen.");
+      weich.join("; ")+". Das Buch nennt das keine feste Regel (S. 112) – einmal nachmessen.",weichIds);
     else add("Oberschenkel, Knie, Wade, Knöchel","Geometrie","OK",
       f1(tu)+" > "+f1(tm)+" > "+f1(k)+" ≥ "+f1(ks)+" < "+f1(c)+" > "+f1(a)+" cm.");
   })();
@@ -618,7 +648,8 @@ function pruefungen(){
     const u = mittel("arm_upper_circ"), l = mittel("arm_lower_circ"), w = mittel("arm_wrist_circ");
     const ok = u>l && l>w;
     add("Arm: Oberarm, Unterarm, Handgelenk","Geometrie",ok?"OK":"BAD",
-      f1(u)+" > "+f1(l)+" > "+f1(w)+" cm"+(ok?"":" – die Reihenfolge stimmt nicht"));
+      f1(u)+" > "+f1(l)+" > "+f1(w)+" cm"+(ok?"":" – die Reihenfolge stimmt nicht"),
+      (u>l ? [] : ["arm_upper_circ","arm_lower_circ"]).concat(l>w ? [] : ["arm_lower_circ","arm_wrist_circ"]));
   }
 
   // 17
@@ -627,15 +658,15 @@ function pruefungen(){
     if(isNaN(HH)){ add("Proportionen zur Körpergröße","Richtwert","OPEN","Braucht die Körpergröße."); return; }
     const R2 = [["height_neck_side",.815,.865],["height_waist_side",.585,.655],
                 ["height_gluteal_fold",.42,.49],["height_knee",.255,.305],["foot_length",.135,.165]];
-    const out = []; let bad = 0, have = 0;
+    const out = [], betr = []; let bad = 0, have = 0;
     R2.forEach(function(p){
       const v = mittel(p[0]); if(isNaN(v)) return;
       have++; const r = v/HH;
-      if(r < p[1] || r > p[2]){ bad++; out.push(nm(p[0])+" "+f1(v)+" cm, erwartet etwa "+f1(p[1]*HH)+"–"+f1(p[2]*HH)); }
+      if(r < p[1] || r > p[2]){ bad++; betr.push(p[0]); out.push(nm(p[0])+" "+f1(v)+" cm, erwartet etwa "+f1(p[1]*HH)+"–"+f1(p[2]*HH)); }
     });
     if(!have) add("Proportionen zur Körpergröße","Richtwert","OPEN","Braucht Körpergröße und weitere Höhen.");
     else if(bad) add("Proportionen zur Körpergröße","Richtwert","WARN",
-      out.join("; ")+". Nur Richtwerte – nachmessen, wenn du unsicher bist.");
+      out.join("; ")+". Nur Richtwerte – nachmessen, wenn du unsicher bist.",betr);
     else add("Proportionen zur Körpergröße","Richtwert","OK",have+" Höhen passen zu "+f1(HH)+" cm Körpergröße.");
   })();
 
@@ -643,25 +674,25 @@ function pruefungen(){
   (function(){
     const R3 = [["head_circ",51,61],["neck_circ",29,46],
                 ["bustpoint_to_bustpoint",14,24],["shoulder_length",9.5,15.5]];
-    const out = []; let have = 0;
+    const out = [], betr = []; let have = 0;
     R3.forEach(function(p){
       const v = mittel(p[0]); if(isNaN(v)) return;
-      have++; if(v < p[1] || v > p[2]) out.push(nm(p[0])+" "+f1(v)+" cm (üblich "+f1(p[1])+"–"+f1(p[2])+")");
+      have++; if(v < p[1] || v > p[2]){ betr.push(p[0]); out.push(nm(p[0])+" "+f1(v)+" cm (üblich "+f1(p[1])+"–"+f1(p[2])+")"); }
     });
     if(!have) add("Typische Umfänge","Richtwert","OPEN","Braucht Kopf, Hals, Brustpunktabstand oder Schulterlänge.");
-    else if(out.length) add("Typische Umfänge","Richtwert","WARN",out.join("; ")+".");
+    else if(out.length) add("Typische Umfänge","Richtwert","WARN",out.join("; ")+".",betr);
     else add("Typische Umfänge","Richtwert","OK",have+" Maße im üblichen Bereich.");
   })();
 
   // 19 – alle Maße
   (function(){
-    const off = []; let n = 0;
+    const off = [], betr = []; let n = 0;
     M.forEach(function(x){
       const s = streuung(x.id); if(isNaN(s)) return;
-      n++; if(s > grenze(x)) off.push(x.name+" ("+f1(s)+" cm)");
+      n++; if(s > grenze(x)){ betr.push(x.id); off.push(x.name+" ("+f1(s)+" cm)"); }
     });
     if(!n) add("Wiederholgenauigkeit","Messqualität","OPEN","Pro Maß zwei oder drei Messungen eintragen.");
-    else if(off.length) add("Wiederholgenauigkeit","Messqualität","WARN","Zu große Streuung, nochmal messen: "+off.join(", ")+".");
+    else if(off.length) add("Wiederholgenauigkeit","Messqualität","WARN","Zu große Streuung, nochmal messen: "+off.join(", ")+".",betr);
     else add("Wiederholgenauigkeit","Messqualität","OK",n+" Maße mehrfach gemessen, alle innerhalb der Toleranz.");
   })();
 
@@ -756,7 +787,7 @@ function pruefungen(){
     for(let i=1;i<ids.length;i++){
       if(!(mittel(ids[i]) > mittel(ids[i-1]))){
         add(t,"Geometrie","BAD",nm(ids[i])+" ("+f1(mittel(ids[i]))+") ist nicht länger als "+
-          nm(ids[i-1])+" ("+f1(mittel(ids[i-1]))+").");
+          nm(ids[i-1])+" ("+f1(mittel(ids[i-1]))+").",[ids[i-1], ids[i]]);
         return;
       }
     }
@@ -770,7 +801,7 @@ function pruefungen(){
     for(let i=1;i<ids.length;i++){
       if(!(mittel(ids[i]) > mittel(ids[i-1]))){
         add(t,"Geometrie","BAD",nm(ids[i])+" ("+f1(mittel(ids[i]))+") ist nicht länger als "+
-          nm(ids[i-1])+" ("+f1(mittel(ids[i-1]))+").");
+          nm(ids[i-1])+" ("+f1(mittel(ids[i-1]))+").",[ids[i-1], ids[i]]);
         return;
       }
     }
@@ -780,7 +811,7 @@ function pruefungen(){
       txt += " Die Brustlinie liegt "+f1(dd)+" cm unter der Achselhöhe; das Buch nennt 2–4 cm (S. 61, 70).";
       if(dd < 0.5 || dd > 6) st = "WARN";
     }
-    add(t,"Geometrie",st,txt);
+    add(t,"Geometrie",st,txt,["b_armhole_depth","b_neck_back_to_bust"]);   // nur die Brustlinie kann WARN auslösen
   })();
 
   if(!voll("b_neck_back_to_waist","b_neck_front_to_waist"))
@@ -801,18 +832,21 @@ function pruefungen(){
     const senk = mittel("height_bustpoint")-mittel("height_waist_side");
     const g = mittel("b_bustpoint_to_waist"), dd = g-senk;
     let st = (dd >= -0.5 && dd <= 3) ? "OK" : (dd >= -1.5 && dd <= 5) ? "WARN" : "BAD";
+    let betr = st === "OK" ? [] : ["b_bustpoint_to_waist","height_bustpoint","height_waist_side"];
     let txt = "Gerade gemessen "+f1(g)+" cm, Höhenunterschied Brustpunkt–Taille "+f1(senk)+
       " cm, Unterschied "+f1(dd)+" cm. Die gerade Linie ist etwas länger als der senkrechte Abstand, weil der Brustpunkt vor der Taille liegt (Buch S. 71).";
     if(voll("bustpoint_to_lowbust","lowbust_to_waist_f")){
       const ueber = mittel("bustpoint_to_lowbust")+mittel("lowbust_to_waist_f");
       txt += " Am Körper entlang über die Unterbrust sind es "+f1(ueber)+" cm.";
-      if(g > ueber+1){ if(st === "OK") st = "WARN"; txt += " Die gerade Linie sollte nicht deutlich länger sein als der Weg am Körper."; }
+      if(g > ueber+1){ if(st === "OK") st = "WARN";
+        betr = betr.concat(["b_bustpoint_to_waist","bustpoint_to_lowbust","lowbust_to_waist_f"]);
+        txt += " Die gerade Linie sollte nicht deutlich länger sein als der Weg am Körper."; }
     }
     if(hat("b_bustpoint_to_neck_side"))
       txt += " Mit "+nm("b_bustpoint_to_neck_side")+" ("+f1(mittel("b_bustpoint_to_neck_side"))+
         " cm) ergibt das "+f1(mittel("b_bustpoint_to_neck_side")+g)+
         " cm vordere Länge über die Brust; die Buch-Tabelle nennt bei 160–165 cm Körpergröße etwa 40–41 cm für Cup A (S. 121).";
-    add("Brustpunkt bis Taille","Geometrie",st,txt);
+    add("Brustpunkt bis Taille","Geometrie",st,txt,betr);
   }
 
   if(!voll("b_waist_to_topthigh_side","b_outside_leg","leg_waist_side_to_floor","height_ankle"))
@@ -866,18 +900,19 @@ function pruefungen(){
     const t = "Vorder- und Rückenanteil ergeben den Umfang";
     const P = [["bust_circ","b_bust_arc_f","b_bust_arc_b"],["waist_circ","b_waist_arc_f","b_waist_arc_b"],
                ["highhip_circ","b_highhip_arc_f","b_highhip_arc_b"],["hip_circ","b_hip_arc_f","b_hip_arc_b"]];
-    const auf = [], gut = []; let have = 0, worst = 0;
+    const auf = [], gut = [], betr = []; let have = 0, worst = 0;
     P.forEach(function(p){
       if(!voll(p[0],p[1],p[2])) return;
       have++;
       const v = mittel(p[1]), h = mittel(p[2]), dd = v+h-mittel(p[0]);
       worst = Math.max(worst, Math.abs(dd));
+      if(Math.abs(dd) > 1) betr.push(p[0],p[1],p[2]);
       (Math.abs(dd) > 1 ? auf : gut).push(nm(p[0])+": vorn "+f1(v)+" + hinten "+f1(h)+" = "+f1(v+h)+
         " gegen "+f1(mittel(p[0]))+" cm");
     });
     if(!have) add(t,"Geometrie","OPEN","Braucht je Höhe den Umfang und beide Anteile (optionale Gruppe).");
     else if(auf.length) add(t,"Geometrie", worst<=2?"WARN":"BAD",
-      auf.join("; ")+". Vermutlich lagen die Seitenpunkte vorn und hinten nicht an derselben Stelle (Buch S. 24–25).");
+      auf.join("; ")+". Vermutlich lagen die Seitenpunkte vorn und hinten nicht an derselben Stelle (Buch S. 24–25).",betr);
     else add(t,"Geometrie","OK",gut.join("; ")+
       ". Laut Buch ist bis zum Bauch meist der Vorderteil größer, am Becken sind beide etwa gleich, an der Hüfte ist der Rückenteil größer (S. 25).");
   })();
@@ -893,7 +928,8 @@ function pruefungen(){
     const komisch = voll("b_waist_to_hip_f","b_waist_to_hip_b") && mittel("b_waist_to_hip_b") < mittel("b_waist_to_hip_f")-1;
     add(t,"Geometrie", komisch?"WARN":"OK", teile.join(", ")+
       " cm. Laut Buch verlängert der Po die hintere Tiefe, die Unterschiede können deutlich sein (S. 105)."+
-      (komisch?" Bei dir ist die hintere Tiefe kürzer als die vordere – nachmessen.":""));
+      (komisch?" Bei dir ist die hintere Tiefe kürzer als die vordere – nachmessen.":""),
+      ["b_waist_to_hip_f","b_waist_to_hip_b"]);
   })();
 
   (function(){
@@ -901,12 +937,13 @@ function pruefungen(){
     const hoch = [["b_neck_mid_circ","Mitte"],["b_neck_collar_top","Kragenoberkante"],["b_neck_top_circ","oben"]];
     if(!hat("neck_circ") || !hoch.some(function(p){ return hat(p[0]); })){
       add(t,"Geometrie","OPEN","Braucht den Halsumfang am Ansatz und mindestens einen Halsumfang darüber."); return; }
-    const a = mittel("neck_circ"), teile = ["Ansatz "+f1(a)], prob = [];
+    const a = mittel("neck_circ"), teile = ["Ansatz "+f1(a)], prob = [], betr = [];
     hoch.forEach(function(p){ if(hat(p[0])) teile.push(p[1]+" "+f1(mittel(p[0]))); });
-    if(hat("b_neck_mid_circ") && mittel("b_neck_mid_circ") > a)
-      prob.push("der mittlere Halsumfang ist größer als der am Ansatz");
-    if(voll("b_neck_mid_circ","b_neck_top_circ") && mittel("b_neck_top_circ") < mittel("b_neck_mid_circ")-0.5)
+    if(hat("b_neck_mid_circ") && mittel("b_neck_mid_circ") > a){
+      prob.push("der mittlere Halsumfang ist größer als der am Ansatz"); betr.push("neck_circ","b_neck_mid_circ"); }
+    if(voll("b_neck_mid_circ","b_neck_top_circ") && mittel("b_neck_top_circ") < mittel("b_neck_mid_circ")-0.5){
       prob.push("der obere Halsumfang ist kleiner als der mittlere, der laut Buch meist der schmalste ist");
+      betr.push("b_neck_mid_circ","b_neck_top_circ"); }
     let zus = "";
     const kh = kragenHoehe(), ka = kragenLage();
     if(!isNaN(kh)){
@@ -920,7 +957,7 @@ function pruefungen(){
         zus += " Für #NeckAtCollarTop kannst du deshalb den mittleren Halsumfang nehmen.";
     }
     add(t,"Geometrie", prob.length?"WARN":"OK", teile.join(", ")+" cm."+
-      (prob.length ? " Auffällig: "+prob.join("; ")+" (Buch S. 44)." : "")+zus);
+      (prob.length ? " Auffällig: "+prob.join("; ")+" (Buch S. 44)." : "")+zus, betr);
   })();
 
   if(!voll("b_hand_circ","arm_wrist_circ"))
@@ -965,7 +1002,7 @@ function pruefungen(){
     for(let i=1;i<ids.length;i++){
       if(!(mittel(ids[i]) > mittel(ids[i-1]))){
         add(t,"Geometrie","BAD",nm(ids[i])+" ("+f1(mittel(ids[i]))+") ist nicht länger als "+
-          nm(ids[i-1])+" ("+f1(mittel(ids[i-1]))+").");
+          nm(ids[i-1])+" ("+f1(mittel(ids[i-1]))+").",[ids[i-1], ids[i]]);
         return;
       }
     }
@@ -978,16 +1015,17 @@ function pruefungen(){
       add(t,"Buchregel","OPEN","Braucht Bizeps, Umfang über dem Ellbogen oder oberes Handgelenk."); return; }
     const ids = ["arm_upper_circ","b_arm_bicep_circ","b_arm_above_elbow_circ","b_arm_elbow_circ",
                  "arm_lower_circ","b_arm_upper_wrist_circ","arm_wrist_circ"].filter(hat);
-    const prob = [];
-    if(voll("arm_upper_circ","b_arm_above_elbow_circ") && !(mittel("b_arm_above_elbow_circ") < mittel("arm_upper_circ")))
-      prob.push("der Umfang über dem Ellbogen ist nicht kleiner als der Oberarm");
-    if(voll("b_arm_elbow_circ","b_arm_above_elbow_circ") && mittel("b_arm_above_elbow_circ") > mittel("b_arm_elbow_circ")+0.5)
+    const prob = [], betr = [];
+    if(voll("arm_upper_circ","b_arm_above_elbow_circ") && !(mittel("b_arm_above_elbow_circ") < mittel("arm_upper_circ"))){
+      prob.push("der Umfang über dem Ellbogen ist nicht kleiner als der Oberarm"); betr.push("arm_upper_circ","b_arm_above_elbow_circ"); }
+    if(voll("b_arm_elbow_circ","b_arm_above_elbow_circ") && mittel("b_arm_above_elbow_circ") > mittel("b_arm_elbow_circ")+0.5){
       prob.push("der Umfang über dem Ellbogen ist größer als der Ellbogen, laut Buch ist er meist kleiner");
-    if(voll("arm_lower_circ","b_arm_upper_wrist_circ") && !(mittel("b_arm_upper_wrist_circ") < mittel("arm_lower_circ")))
-      prob.push("das obere Handgelenk ist nicht schmaler als der Unterarm");
+      betr.push("b_arm_above_elbow_circ","b_arm_elbow_circ"); }
+    if(voll("arm_lower_circ","b_arm_upper_wrist_circ") && !(mittel("b_arm_upper_wrist_circ") < mittel("arm_lower_circ"))){
+      prob.push("das obere Handgelenk ist nicht schmaler als der Unterarm"); betr.push("arm_lower_circ","b_arm_upper_wrist_circ"); }
     add(t,"Buchregel", prob.length?"WARN":"OK",
       ids.map(function(i){ return nm(i)+" "+f1(mittel(i)); }).join(", ")+" cm."+
-      (prob.length ? " Auffällig: "+prob.join("; ")+" (Buch S. 52)." : ""));
+      (prob.length ? " Auffällig: "+prob.join("; ")+" (Buch S. 52)." : ""), betr);
   })();
 
   (function(){
@@ -996,11 +1034,13 @@ function pruefungen(){
       add(t,"Geometrie","OPEN","Braucht "+namen("b_arm_elbow_depth","b_arm_elbow_depth_bent")+"."); return; }
     const dd = mittel("b_arm_elbow_depth_bent")-mittel("b_arm_elbow_depth");
     let st = (dd >= -0.5 && dd <= 3) ? "OK" : "WARN";
+    const betr = st === "OK" ? [] : ["b_arm_elbow_depth","b_arm_elbow_depth_bent"];
     let txt = "Gestreckt "+f1(mittel("b_arm_elbow_depth"))+" cm, gebeugt "+f1(mittel("b_arm_elbow_depth_bent"))+
       " cm, Unterschied "+f1(dd)+" cm. Gebeugt wird die Strecke etwas länger.";
     if(voll("b_arm_bent","b_arm_elbow_depth_bent") && !(mittel("b_arm_elbow_depth_bent") < mittel("b_arm_bent"))){
-      st = "BAD"; txt += " Die Strecke bis zum Ellbogen ist nicht kürzer als die ganze gebeugte Armlänge."; }
-    add(t,"Geometrie",st,txt);
+      st = "BAD"; betr.push("b_arm_elbow_depth_bent","b_arm_bent");
+      txt += " Die Strecke bis zum Ellbogen ist nicht kürzer als die ganze gebeugte Armlänge."; }
+    add(t,"Geometrie",st,txt,betr);
   })();
 
   if(!voll("b_arm_twopiece","b_arm_bent"))
@@ -1010,7 +1050,8 @@ function pruefungen(){
     let txt = "Ab Rückenmitte "+f1(mittel("b_arm_twopiece"))+" cm, ab Schulterspitze "+f1(mittel("b_arm_bent"))+
       " cm, Unterschied "+f1(dd)+" cm. Das ist etwa die Strecke von der Rückenmitte bis zur Schulterspitze";
     if(hat("b_back_width")) txt += "; deine halbe Rückenbreite beträgt "+f1(mittel("b_back_width")/2)+" cm";
-    add("Ärmellänge ab Rückenmitte gegen ab Schulterspitze","Geometrie", dd > 5 ? "OK" : "WARN", txt+" (The Shirt S. 6).");
+    add("Ärmellänge ab Rückenmitte gegen ab Schulterspitze","Geometrie", dd > 5 ? "OK" : "WARN", txt+" (The Shirt S. 6).",
+      ["b_arm_twopiece","b_arm_bent"]);
   }
 
 
@@ -1019,19 +1060,30 @@ function pruefungen(){
     if(!voll("b_nape_to_bustpoint","b_bustpoint_to_neck_side")){
       add(t,"Geometrie","OPEN","Braucht "+namen("b_nape_to_bustpoint","b_bustpoint_to_neck_side")+"."); return; }
     const dd = mittel("b_nape_to_bustpoint")-mittel("b_bustpoint_to_neck_side");
+    const betr = ["b_nape_to_bustpoint","b_bustpoint_to_neck_side"];
     let st, txt = "Ab Nacken "+f1(mittel("b_nape_to_bustpoint"))+" cm, ab innerem Schulterpunkt "+
       f1(mittel("b_bustpoint_to_neck_side"))+" cm. Der Unterschied von "+f1(dd)+" cm ist der halbe hintere Halsbogen";
     if(voll("b_neck_back_width","b_neck_back_depth")){
       const bogen = Math.sqrt(Math.pow(mittel("b_neck_back_width"),2)+Math.pow(mittel("b_neck_back_depth"),2));
       const ad = Math.abs(dd-bogen);
       st = ad<=1.5 ? "OK" : ad<=3 ? "WARN" : "BAD";
+      betr.push("b_neck_back_width","b_neck_back_depth");
       txt += "; aus Halsbreite und Halstiefe hinten ergeben sich mindestens "+f1(bogen)+" cm";
     } else st = (dd > 3 && dd < 14) ? "OK" : "WARN";
-    add(t,"Geometrie",st,txt+". Das Compendium zieht genau diesen Halsbogen ab, um die Höhe der Brustlinie zu finden.");
+    add(t,"Geometrie",st,txt+". Das Compendium zieht genau diesen Halsbogen ab, um die Höhe der Brustlinie zu finden.",betr);
   })();
 
+  gelesen = null;
   const rang = {BAD:0, WARN:1, OPEN:2, OK:3};
-  return R.sort(function(a,b){ return rang[a.status]-rang[b.status]; });
+  R.sort(function(a,b){ return rang[a.status]-rang[b.status]; });
+  // Kurzzeichen, das an der Prüfung und an allen betroffenen Karten steht: K1, K2 … für
+  // Konflikte, P1, P2 … für „prüfen“ – in der Reihenfolge der Liste.
+  let nk = 0, np = 0;
+  R.forEach(function(p){
+    if(p.status === "BAD") p.zeichen = "K" + (++nk);
+    else if(p.status === "WARN") p.zeichen = "P" + (++np);
+  });
+  return R;
 }
 
 function fortschritt(){
@@ -1215,9 +1267,17 @@ function overlayZu(vonZurueck){
     try{ if(history.state && history.state.messbuch) history.back(); }catch(e){}
   }
 }
+/* Sprungziel festhalten: Die Bilder laden erst in der Nähe des Bildschirms (loading="lazy")
+   und schieben dann alles darunter nach unten. Chrome gleicht das von selbst aus, Safari
+   nicht – dort landete ein Sprung sonst weit über dem Ziel. Darum rollt halte() nach jeder
+   Größenänderung der Seite noch einmal hin, bis jemand selbst scrollt oder tippt. */
+let halteZiel = null;
+function halte(){
+  if(halteZiel && halteZiel.isConnected) halteZiel.scrollIntoView(); else halteZiel = null;
+}
 function springe(id){
   const ziel = document.getElementById(id);
-  const los = function(){ if(ziel) ziel.scrollIntoView(); };
+  const los = function(){ if(ziel){ halteZiel = ziel; ziel.scrollIntoView(); } };
   let wartet = false;
   try{ wartet = !!(history.state && history.state.messbuch); }catch(e){}
   overlayZu(false);
@@ -1361,6 +1421,8 @@ function karte(x){
   const k = el("div","kennung", kennungText(x));
   if(inDatei(x)) k.appendChild(el("span","marke","Maßdatei"));
   if(ARMLOCH[x.id]) k.appendChild(el("span","marke arm","Armloch/Ärmel"));
+  const kz = el("span"); kz.id = "kz_" + x.id;    // Kürzel der auffälligen Prüfungen, füllt markierungenZeichnen()
+  k.appendChild(kz);
   c.appendChild(k);
   const fuer = (DATEN.schnitte || {})[x.id];
   if(fuer){
@@ -1447,6 +1509,9 @@ function karte(x){
     w.appendChild(l); w.appendChild(inp); felder.appendChild(w);
   });
   c.appendChild(felder);
+  // unter den Feldern, damit beim Nachmessen gleich zu sehen ist, ob der Konflikt weg ist
+  const auff = el("div","auffaellig"); auff.id = "auff_" + x.id; auff.hidden = true;
+  c.appendChild(auff);
   if(unten.childNodes.length) c.appendChild(unten);
   werteInKarte(x.id);
   return c;
@@ -1508,8 +1573,7 @@ function pillsZeichnen(c){
   const pills = document.getElementById("pills");
   pills.innerHTML = "";
   if(filter !== "alle"){
-    const fb = knopf("pill filterpill", FILTERNAME[filter] + " ✕", function(){
-      filter = "alle"; sichern(); filterAnwenden(); pillsZeichnen(zaehlung()); kopfhoehe(); });
+    const fb = knopf("pill filterpill", FILTERNAME[filter] + " ✕", alleZeigen);
     fb.setAttribute("aria-label", "Filter „" + FILTERNAME[filter] + "“ aufheben");
     pills.appendChild(fb);
   }
@@ -1517,16 +1581,30 @@ function pillsZeichnen(c){
    ["bad", c.BAD, c.BAD === 1 ? "Konflikt" : "Konflikte"],["open", c.OPEN, "offen"]]
    .forEach(function(p){
      pills.appendChild(knopf("pill " + p[0], p[1] + " " + p[2], function(){
-       document.getElementById("pruefungen").scrollIntoView(); }));
+       // zur ersten Prüfung mit diesem Ergebnis – die Liste ist danach sortiert
+       const erste = document.querySelector("#pruefbox .check." + p[0]);
+       springe(erste ? erste.id : "pruefungen"); }));
    });
 }
+function alleZeigen(){
+  filter = "alle"; sichern(); filterAnwenden(); pillsZeichnen(zaehlung()); kopfhoehe();
+}
 function kopfAktualisieren(){
+  // Ändert sich über dem Eingabefeld etwas (Markierung einer anderen Karte, Kragenhinweis),
+  // bleibt das Feld trotzdem an seiner Stelle – Safari gleicht das nicht von selbst aus.
+  const feld = document.activeElement;
+  const vorher = (feld && feld !== document.body) ? feld.getBoundingClientRect().top : NaN;
   document.getElementById("count").textContent = fortschritt();
   pillsZeichnen(zaehlung());
   gruppenZaehler();
   kragenHinweis();
   pruefungenZeichnen();
+  markierungenZeichnen();
   ergebnisTauschen();
+  if(!isNaN(vorher) && feld.isConnected){
+    const d = feld.getBoundingClientRect().top - vorher;
+    if(Math.abs(d) > 1) window.scrollBy(0, d);
+  }
 }
 function schalter(text, an, fn){
   const z = el("label","row");
@@ -1599,14 +1677,74 @@ function speicherHinweis(){
 function pruefboxInhalt(box){
   box.innerHTML = "";
   pruefungen().forEach(function(p){
-    const d = el("div","check");
-    d.appendChild(el("span","s " + p.status.toLowerCase(), statusText(p.status)));
+    const st = p.status.toLowerCase();
+    const d = el("div","check " + st); d.id = "pruefung_" + p.nr;
+    d.appendChild(el("span","s " + st, statusText(p.status)));
     const t = el("div","t");
-    t.appendChild(el("span","dot " + p.status.toLowerCase()));
-    t.appendChild(document.createTextNode(p.title));
+    t.appendChild(el("span","dot " + st));
+    if(p.zeichen) t.appendChild(kuerzel(p));
+    t.appendChild(document.createTextNode((p.zeichen ? " " : "") + p.title));
     d.appendChild(t);
     d.appendChild(el("div","hint", p.text));
+    const ids = betroffene(p);
+    if(ids.length) d.appendChild(massKnoepfe(ids, ids.length > 1 ? "Betroffene Maße:" : "Betroffenes Maß:"));
     box.appendChild(d);
+  });
+}
+
+/* ── Auffällige Maße ──────────────────────────────────────
+   Jede Prüfung mit Konflikt oder „prüfen“ nennt die Maße, die sie betrifft. Deren Karten
+   bekommen einen farbigen Rand, oben das Kürzel der Prüfung und unter den Feldern die
+   Prüfung samt den anderen beteiligten Maßen – jeweils zum Hinspringen. */
+function betroffene(p){
+  if(p.status !== "BAD" && p.status !== "WARN") return [];
+  return p.ids.filter(function(id){ return BY[id] && hat(id); });
+}
+// Richtwerte und Streuung bewerten jedes Maß für sich – da gehören die Maße nicht zusammen
+function einzeln(p){ return p.kind === "Richtwert" || p.kind === "Messqualität"; }
+function kuerzel(p){ return el("span","kz " + p.status.toLowerCase(), p.zeichen); }
+function massKnoepfe(ids, text){
+  const z = el("div","sprungzeile");
+  z.appendChild(el("span","hint", text));
+  ids.forEach(function(id){
+    const b = knopf("masssprung", nm(id), function(){ zeigeMass(id); });
+    b.setAttribute("aria-label", "Zum Maß „" + nm(id) + "“ springen");
+    z.appendChild(b);
+  });
+  return z;
+}
+function zeigeMass(id){
+  const c = document.getElementById("karte_" + id);
+  if(c && c.hidden) alleZeigen();                 // der Filter versteckt die Karte gerade
+  springe("karte_" + id);
+}
+function markierungenZeichnen(){
+  const je = {};
+  pruefungen().forEach(function(p){
+    betroffene(p).forEach(function(id){ (je[id] = je[id] || []).push(p); });
+  });
+  M.forEach(function(x){
+    const c = document.getElementById("karte_" + x.id);
+    const kz = document.getElementById("kz_" + x.id), box = document.getElementById("auff_" + x.id);
+    if(!c || !kz || !box) return;
+    const liste = je[x.id] || [];
+    const bad = liste.some(function(p){ return p.status === "BAD"; });
+    c.classList.toggle("auff-bad", bad);
+    c.classList.toggle("auff-warn", !bad && liste.length > 0);
+    kz.innerHTML = ""; box.innerHTML = ""; box.hidden = !liste.length;
+    if(!liste.length) return;
+    box.appendChild(el("div","hint","Auffällig in den Kreuzprüfungen:"));
+    liste.forEach(function(p){
+      kz.appendChild(kuerzel(p));
+      const e = el("div","eintrag");
+      const b = knopf("pruefsprung " + p.status.toLowerCase(), null, function(){ springe("pruefung_" + p.nr); });
+      b.appendChild(kuerzel(p));
+      b.appendChild(document.createTextNode(" " + (p.status === "BAD" ? "Konflikt: " : "Prüfen: ") + p.title));
+      e.appendChild(b);
+      const andere = betroffene(p).filter(function(id){ return id !== x.id; });
+      if(andere.length && !einzeln(p)) e.appendChild(massKnoepfe(andere, "Zusammen mit:"));
+      box.appendChild(e);
+    });
   });
 }
 function pruefungenZeichnen(){
@@ -1766,6 +1904,7 @@ function zeichne(){
   main.appendChild(el("p","hint", T.fassung));
   // Mittelwert und Streuung erst setzen, wenn die Karten im Dokument haengen.
   M.forEach(function(x){ werteInKarte(x.id); });
+  markierungenZeichnen();
   gruppenZaehler();
   kragenHinweis();
   filterAnwenden();
@@ -1786,6 +1925,10 @@ document.getElementById("dlgzu").onclick = function(){ overlayZu(false); };
 document.getElementById("warnsichern").onclick = sicherungSpeichern;
 window.addEventListener("popstate", function(){ overlayZu(true); });
 window.addEventListener("resize", kopfhoehe);
+if("ResizeObserver" in window) new ResizeObserver(halte).observe(document.getElementById("main"));
+["touchstart","wheel","keydown","mousedown"].forEach(function(t){      // wer selbst scrollt, wird nicht festgehalten
+  window.addEventListener(t, function(){ halteZiel = null; }, {passive:true});
+});
 document.addEventListener("keydown", function(e){
   if(e.key === "Escape") overlayZu(false);
 });
