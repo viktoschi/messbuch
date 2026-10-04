@@ -82,11 +82,12 @@ When touching a check in `pruefungen()`, compare its results (title/kind/status/
   at fault (ordered chains, per-item lists, values read only for the explanation text), and `[]` for fit hints that
   don't doubt a measurement. Kinds `Richtwert`/`Messqualität` judge each measure on its own (`einzeln()`), so their
   measures aren't shown as belonging together.
-- **Marking & navigation**: `markierungenZeichnen()` tints affected cards red (any BAD) or yellow (WARN only), puts an
-  index line per check at the top of the card (`idx_<id>`: K/P chip + the other measures involved — same chip = measures
+- **Marking & navigation**: `markierungenZeichnen()` gives each card a traffic-light class like the check entries:
+  `bad` (in any BAD check), `warn` (WARN only), `ok` (measured, nothing flagged), none without a value. Flagged cards
+  get an index line per check at the top (`idx_<id>`: K/P chip + the other measures involved — same chip = measures
   that belong together) and, below the inputs, the checks with jump buttons to those measures (`auff_<id>`).
-  `pruefboxInhalt()` tints BAD/WARN entries the same way and adds jump buttons from each check to its measures.
-  Tint colours are the `--badBg`/`--warnBg` (+ `--onBad`/`--onWarn` for chip text) tokens in both themes. Always jump with `springe(id)`: images are `loading="lazy"` without a
+  `pruefboxInhalt()` gives check entries the status class and jump buttons to their measures. Tint colours are the
+  `--badBg`/`--warnBg`/`--okBg` (+ `--onBad`/`--onWarn` for chip text) tokens in both themes. Always jump with `springe(id)`: images are `loading="lazy"` without a
   reserved size and shift the page while loading, and Safari has no scroll anchoring, so `halte()` (ResizeObserver
   on `#main`) re-aligns the target until the user touches, scrolls or types. `kopfAktualisieren()` likewise keeps the
   focused input in place when markings above it change.
