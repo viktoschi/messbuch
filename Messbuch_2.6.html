@@ -123,6 +123,10 @@ button.breit{display:block;width:100%;margin-top:8px}
 .befund.nach b{background:var(--warn);color:var(--onWarn)}
 .befund.stark b{background:var(--ok);color:var(--onOk)}
 .befund.grob b,.befund.ungeprueft b{border-color:var(--feld);color:var(--muted)}
+/* Beim Nachmessen: Hinweis, dass alle Felder gemittelt werden, und „Werte leeren“ */
+.befund .nachweis{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:6px;color:var(--muted)}
+.befund .nachweis span{flex:1 1 220px}
+.befund .nachweis button{flex:0 0 auto;min-height:44px;padding:9px 14px;font-size:15px;line-height:1.3}
 .pill.neu{background:var(--bad);color:var(--onBad);border-color:var(--bad)}
 .auffaellig{margin-top:12px;padding-top:8px;border-top:1px dashed var(--line)}
 .auffaellig .eintrag{margin-top:8px}
@@ -133,6 +137,12 @@ button.pruefsprung.bad{border-color:var(--bad)} button.pruefsprung.warn{border-c
 .sprungzeile .hint{margin:0;flex-basis:100%}
 button.masssprung{min-height:44px;padding:8px 12px;font-size:15px;line-height:1.3;border-radius:999px;
   border:1px solid var(--feld);background:transparent;color:var(--plum);text-align:left}
+/* Maßknöpfe zeigen den Befund wie die Karte: neu messen rot, nachmessen gelb, bestätigt ✓ */
+button.masssprung.neu{border-color:var(--bad);box-shadow:inset 0 0 0 1px var(--bad)}
+button.masssprung.nach{border-color:var(--warn);box-shadow:inset 0 0 0 1px var(--warn)}
+button.masssprung .bf{font-weight:700;white-space:nowrap}
+button.masssprung.neu .bf{color:var(--bad)} button.masssprung.nach .bf{color:var(--warn)}
+button.masssprung.stark .bf{color:var(--ok)}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border:1px solid var(--line);
   border-radius:8px;padding:12px;font:15px/1.5 ui-monospace,Consolas,monospace}
 details{margin:6px 0}
@@ -399,9 +409,26 @@ function mittel(id){
   const v = werte(id);
   return v.length ? v.reduce((a,b)=>a+b,0)/v.length : NaN;
 }
-function streuung(id){
+function streuung(id){            // Spanne, auf 0,1 gerundet wie angezeigt (16,1 − 15,6 ergäbe sonst 0,5000000000000018)
   const v = werte(id);
-  return v.length < 2 ? NaN : Math.max.apply(null,v) - Math.min.apply(null,v);
+  return v.length < 2 ? NaN : Math.round((Math.max.apply(null,v) - Math.min.apply(null,v))*10)/10;
+}
+// Bei drei Messungen der eine Wert, der von beiden anderen weiter als die Toleranz abweicht, während
+// diese zusammenpassen – nur für den Hinweis, mittel() rechnet weiter mit allen Werten.
+function ausreisser(x){
+  const v = werte(x.id), r = state[x.id] || [];
+  if(v.length !== 3 || r.length !== 3) return null;
+  const ab = function(a,b){ return Math.round(Math.abs(a-b)*10)/10; }, g = grenze(x);
+  for(let i=0;i<3;i++){
+    const a = v[i === 0 ? 1 : 0], b = v[i === 2 ? 1 : 2];      // die beiden anderen in Feldreihenfolge
+    if(ab(a,b) <= g && ab(v[i],a) > g && ab(v[i],b) > g) return {nr:i+1, wert:v[i], andere:[a,b]};
+  }
+  return null;
+}
+function streuHinweis(x){
+  const a = ausreisser(x);
+  return a ? "Messung " + a.nr + " mit " + f1(a.wert) + " weicht von " + f1(a.andere[0]) + " und " +
+    f1(a.andere[1]) + " ab – diesen Wert löschen" : "";
 }
 function hat(id){ return werte(id).length > 0; }
 function voll(){ for(let i=0;i<arguments.length;i++) if(isNaN(mittel(arguments[i]))) return false; return true; }
@@ -724,15 +751,20 @@ function pruefungen(){
     else add("Typische Umfänge","Richtwert","OK",have+" Maße im üblichen Bereich.");
   })();
 
-  // 19 – alle Maße
+  // 19 – alle Maße. Lässt sich bei drei Werten sagen, welcher abweicht, steht das dabei; sonst ein
+  // allgemeiner Hinweis, denn alle Felder gehen in den Mittelwert ein.
   (function(){
-    const off = [], betr = []; let n = 0;
+    const off = [], betr = []; let n = 0, unklar = 0;
     M.forEach(function(x){
       const s = streuung(x.id); if(isNaN(s)) return;
-      n++; if(s > grenze(x)){ betr.push(x.id); off.push(x.name+" ("+f1(s)+" cm)"); }
+      n++; if(s > grenze(x)){
+        const h = streuHinweis(x); if(!h) unklar++;
+        betr.push(x.id); off.push(x.name+" ("+f1(s)+" cm"+(h ? "; "+h : "")+")"); }
     });
     if(!n) add("Wiederholgenauigkeit","Messqualität","OPEN","Pro Maß zwei oder drei Messungen eintragen.");
-    else if(off.length) add("Wiederholgenauigkeit","Messqualität","WARN","Zu große Streuung, nochmal messen: "+off.join(", ")+".",betr);
+    else if(off.length) add("Wiederholgenauigkeit","Messqualität","WARN","Zu große Streuung, nochmal messen: "+off.join(", ")+"."+
+      (unklar ? " Alle Felder eines Maßes werden gemittelt: einen falschen Wert löschen oder überschreiben, nicht nur "+
+        "einen weiteren dazuschreiben. Bei zwei Werten zeigt eine dritte Messung, welcher abweicht." : ""),betr);
     else add("Wiederholgenauigkeit","Messqualität","OK",n+" Maße mehrfach gemessen, alle innerhalb der Toleranz.");
   })();
 
@@ -1383,8 +1415,17 @@ function overlayZu(vonZurueck){
    nicht – dort landete ein Sprung sonst weit über dem Ziel. Darum rollt halte() nach jeder
    Größenänderung der Seite noch einmal hin, bis jemand selbst scrollt oder tippt. */
 let halteZiel = null;
+// Ebenso das Eingabefeld beim Tippen: kopfAktualisieren() gleicht Änderungen darüber sofort aus; lädt danach
+// noch ein Bild darüber nach (die Seite rückt dabei oft in dessen Ladebereich), rollt halte() das Feld an
+// dieselbe Stelle zurück – bis jemand selbst scrollt oder das Feld verlässt.
+let feldZiel = null, feldOben = 0;
 function halte(){
-  if(halteZiel && halteZiel.isConnected) halteZiel.scrollIntoView(); else halteZiel = null;
+  if(halteZiel && halteZiel.isConnected){ halteZiel.scrollIntoView(); return; }
+  halteZiel = null;
+  if(feldZiel && feldZiel.isConnected && document.activeElement === feldZiel){
+    const d = feldZiel.getBoundingClientRect().top - feldOben;
+    if(Math.abs(d) > 1) window.scrollBy(0, d);
+  } else feldZiel = null;
 }
 function springe(id){
   const ziel = document.getElementById(id);
@@ -1593,6 +1634,9 @@ function karte(x){
 
   const imp = vorlagenWert(x);
   if(imp !== null) c.appendChild(el("div","hint", "bisher: " + f1(imp) + " cm"));
+  const vh = el("div","hint", geleert[x.id] ? "vorher: " + geleert[x.id] + " cm" : "");   // nach „Werte leeren“
+  vh.id = "vorher_" + x.id; vh.hidden = !geleert[x.id];
+  c.appendChild(vh);
 
   const zeile = el("div","mass");
   zeile.appendChild(el("span", null, ""));
@@ -1623,7 +1667,7 @@ function karte(x){
     w.appendChild(l); w.appendChild(inp); felder.appendChild(w);
   });
   c.appendChild(felder);
-  // unter den Feldern, damit beim Nachmessen gleich zu sehen ist, ob der Konflikt weg ist
+  // unter den Feldern, damit beim Nachmessen gleich zu sehen ist, ob der Konflikt weg ist (mit den Zahlen)
   const auff = el("div","auffaellig"); auff.id = "auff_" + x.id; auff.hidden = true;
   c.appendChild(auff);
   if(unten.childNodes.length) c.appendChild(unten);
@@ -1644,7 +1688,7 @@ function werteInKarte(id){
   const se = document.getElementById("spread_" + id);
   if(se){
     if(isNaN(sp)){ se.textContent = ""; se.className = "spread"; }
-    else { se.textContent = "± " + f1(sp/2);
+    else { se.textContent = "Spanne " + f1(sp) + " cm";      // wie die Regel „mehr als 0,5 cm“ und die Prüfung
            se.className = "spread " + (sp > grenze(x) ? "over" : "ok"); }
   }
 }
@@ -1697,10 +1741,15 @@ function pillsZeichnen(c){
   if(neu.length){                       // reihum zur nächsten Karte, die neu gemessen werden muss
     pills.appendChild(knopf("pill neu", neu.length + " neu messen", function(){
       const karten = neu.map(function(id){ return document.getElementById("karte_" + id); }).filter(Boolean);
+      if(!karten.length) return;
       if(karten.some(function(k){ return k.hidden; })) alleZeigen();
-      karten.sort(function(a,b){ return a.getBoundingClientRect().top - b.getBoundingClientRect().top; });
-      neuSchritt = (neuSchritt + 1) % karten.length;
-      springe(karten[neuSchritt].id); }));
+      // die nächste Karte nach der zuletzt angesprungenen – nach der Lage im Dokument, denn die ist
+      // nach einer Korrektur oft nicht mehr in der Liste (oder vom Filter versteckt)
+      const danach = function(a, b){ return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); };
+      karten.sort(function(a,b){ return danach(a,b) ? -1 : 1; });
+      const ref = neuLetzt && document.getElementById(neuLetzt);
+      const z = (ref && karten.find(function(k){ return danach(ref, k); })) || karten[0];
+      neuLetzt = z.id; springe(z.id); }));
   }
   [["ok", c.OK, "passen"],["warn", c.WARN, "prüfen"],
    ["bad", c.BAD, c.BAD === 1 ? "Konflikt" : "Konflikte"],["open", c.OPEN, "offen"]]
@@ -1711,7 +1760,7 @@ function pillsZeichnen(c){
        springe(erste ? erste.id : "pruefungen"); }));
    });
 }
-let neuSchritt = -1;                    // zuletzt angesprungene Karte der Reihe „neu messen“
+let neuLetzt = null;                    // Id der zuletzt angesprungenen Karte der Reihe „neu messen“
 function alleZeigen(){
   filter = "alle"; sichern(); filterAnwenden(); pillsZeichnen(zaehlung()); kopfhoehe();
 }
@@ -1719,7 +1768,8 @@ function kopfAktualisieren(){
   // Ändert sich über dem Eingabefeld etwas (Markierung einer anderen Karte, Kragenhinweis),
   // bleibt das Feld trotzdem an seiner Stelle – Safari gleicht das nicht von selbst aus.
   const feld = document.activeElement;
-  const vorher = (feld && feld !== document.body) ? feld.getBoundingClientRect().top : NaN;
+  // Hält halte() das Feld schon fest, gilt die gemerkte Lage – ein Bild kann seither nachgeladen haben
+  const vorher = (feld && feld !== document.body) ? (feld === feldZiel ? feldOben : feld.getBoundingClientRect().top) : NaN;
   document.getElementById("count").textContent = fortschritt();
   pillsZeichnen(zaehlung());
   gruppenZaehler();
@@ -1730,6 +1780,7 @@ function kopfAktualisieren(){
   if(!isNaN(vorher) && feld.isConnected){
     const d = feld.getBoundingClientRect().top - vorher;
     if(Math.abs(d) > 1) window.scrollBy(0, d);
+    if(feld.tagName === "INPUT"){ feldZiel = feld; feldOben = vorher; }
   }
 }
 function schalter(text, an, fn){
@@ -1802,7 +1853,8 @@ function speicherHinweis(){
 
 function pruefboxInhalt(box){
   box.innerHTML = "";
-  pruefungen().forEach(function(p){
+  const L = pruefungen(), F = befunde(L);
+  L.forEach(function(p){
     const st = p.status.toLowerCase();
     const d = el("div","check " + st); d.id = "pruefung_" + p.nr;
     d.appendChild(el("span","s " + st, statusText(p.status)));
@@ -1813,7 +1865,7 @@ function pruefboxInhalt(box){
     d.appendChild(t);
     d.appendChild(el("div","hint", p.text));
     const ids = betroffene(p);
-    if(ids.length) d.appendChild(massKnoepfe(ids, ids.length > 1 ? "Betroffene Maße:" : "Betroffenes Maß:"));
+    if(ids.length) d.appendChild(massKnoepfe(ids, ids.length > 1 ? "Betroffene Maße:" : "Betroffenes Maß:", F));
     box.appendChild(d);
   });
 }
@@ -1829,12 +1881,30 @@ function betroffene(p){
 // Richtwerte und Streuung bewerten jedes Maß für sich – da gehören die Maße nicht zusammen
 function einzeln(p){ return p.kind === "Richtwert" || p.kind === "Messqualität"; }
 function kuerzel(p){ return el("span","kz " + p.status.toLowerCase(), p.zeichen); }
-function massKnoepfe(ids, text){
+// erster Satz eines Prüftexts – „S. 48“ und „7. Halswirbel“ sind kein Satzende
+function ersterSatz(t){
+  const m = /[^\d\s]\.\s+(?=[A-ZÄÖÜ])/.exec(t);
+  return m ? t.slice(0, m.index + 2) : t;
+}
+// Streuung auf der Karte: nur das eigene Maß, nicht die Liste aller streuenden Maße
+function streuKarte(x){
+  const h = streuHinweis(x);
+  if(h) return h + ".";
+  return werte(x.id).length < 3 ? "Ein drittes Mal messen, dann zeigt sich, welcher Wert abweicht."
+    : "Kein einzelner Ausreißer: noch einmal sorgfältig messen und die Werte überschreiben.";
+}
+// Maßknöpfe zeigen mit F (befunde()) auch den Befund: neu messen, nachmessen, bestätigt
+const KNOPFBEFUND = {neu:"neu messen", nach:"nachmessen", stark:"bestätigt"};
+function massKnoepfe(ids, text, F){
   const z = el("div","sprungzeile");
   z.appendChild(el("span","hint", text));
   ids.forEach(function(id){
-    const b = knopf("masssprung", nm(id), function(){ zeigeMass(id); });
-    b.setAttribute("aria-label", "Zum Maß „" + nm(id) + "“ springen");
+    const art = F ? befundArt(id, F) : "", wort = KNOPFBEFUND[art];
+    const b = knopf("masssprung" + (wort ? " " + art : ""), null, function(){ zeigeMass(id); });
+    if(art === "stark") b.appendChild(el("span","bf","✓ "));
+    b.appendChild(document.createTextNode(nm(id)));
+    if(art === "neu" || art === "nach") b.appendChild(el("span","bf"," · " + wort));
+    b.setAttribute("aria-label", "Zum Maß „" + nm(id) + "“ springen" + (wort ? " – " + wort : ""));
     z.appendChild(b);
   });
   return z;
@@ -1906,6 +1976,26 @@ function titelListe(liste){
   const t = liste.map(function(p){ return p.title; }).filter(function(v,i,a){ return a.indexOf(v) === i; });
   return t.slice(0,2).join(" · ") + (t.length > 2 ? " und " + (t.length-2) + " weitere" : "");
 }
+// Befund eines Maßes in einem Wort – Karte und Maßknöpfe zeigen denselben
+function befundArt(id, F){
+  const v = F.verdacht[id];
+  return v && v.neu.length ? "neu" : v && v.nach.length ? "nach" : F.stark[id] ? "stark" : F.grob[id] ? "grob" : "ungeprueft";
+}
+// „Werte leeren“ auf einer Karte „Neu messen“: alle drei Felder leer, die alten Werte bleiben als
+// „vorher“ über den Feldern stehen (nur bis zum Neuladen), Messung 1 bekommt den Fokus.
+const geleert = {};
+function leeren(x){
+  geleert[x.id] = werte(x.id).map(f1).join(" · ");
+  state[x.id] = ["","",""]; ungesichert = true;
+  sichern();
+  [0,1,2].forEach(function(i){ const f = document.getElementById(x.id + "_" + i); if(f) f.value = ""; });
+  const vh = document.getElementById("vorher_" + x.id);
+  if(vh){ vh.textContent = "vorher: " + geleert[x.id] + " cm"; vh.hidden = false; }
+  werteAktualisieren(x.id); kopfAktualisieren();
+  springe("vorher_" + x.id);
+  const f0 = document.getElementById(x.id + "_0");
+  if(f0) f0.focus({preventScroll:true});
+}
 function befundZeichnen(x, F, auffaellig){
   const bf = document.getElementById("befund_" + x.id); if(!bf) return;
   bf.innerHTML = ""; bf.className = "befund"; bf.hidden = !hat(x.id);
@@ -1921,18 +2011,33 @@ function befundZeichnen(x, F, auffaellig){
       : "eins von " + e.anzahl + " Maßen, die keine andere Prüfung bestätigt");
   };
   const u = F.ungewoehnlich[x.id];   // außerhalb eines Richtwerts, aber durch eine Gleichung bestätigt
-  let art, kurz, text;
-  if(v && v.neu.length){ art = "neu"; kurz = "Neu messen"; text = v.neu.concat(v.nach).map(grund).join("; "); }
-  else if(v && v.nach.length){ art = "nach"; kurz = "Nachmessen empfohlen"; text = v.nach.map(grund).join("; "); }
-  else if(F.stark[x.id]){ art = "stark"; kurz = "✓ bestätigt";
+  const art = befundArt(x.id, F);
+  let kurz, text;
+  if(art === "neu"){ kurz = "Neu messen"; text = v.neu.concat(v.nach).map(grund).join("; "); }
+  else if(art === "nach"){ kurz = "Nachmessen empfohlen"; text = v.nach.map(grund).join("; "); }
+  else if(art === "stark"){ kurz = "✓ bestätigt";
     text = "durch " + titelListe(F.stark[x.id]) +
       (u ? " – " + u.map(function(p){ return p.zeichen; }).join(", ") + ": ungewöhnlicher Wert, passt aber zu den anderen Maßen"
          : auffaellig ? " – nicht nachmessen" : ""); }
-  else if(F.grob[x.id]){ art = "grob"; kurz = "grob geprüft"; text = "nur Reihenfolge oder Richtwert: " + titelListe(F.grob[x.id]); }
-  else { art = "ungeprueft"; kurz = "nicht gegengeprüft"; text = "keine Prüfung vergleicht dieses Maß mit anderen"; }
+  else if(art === "grob"){ kurz = "grob geprüft"; text = "nur Reihenfolge oder Richtwert: " + titelListe(F.grob[x.id]); }
+  else { kurz = "nicht gegengeprüft"; text = "keine Prüfung vergleicht dieses Maß mit anderen"; }
   bf.classList.add(art);
   bf.appendChild(el("b", null, kurz));
   bf.appendChild(document.createTextNode(text));
+  if(art !== "neu" && art !== "nach") return;
+  // Alle Felder gehen in den Mittelwert ein: Ein neuer Wert neben dem alten mittelt den Fehler mit.
+  const w = werte(x.id).map(f1), z = el("div","nachweis");
+  z.appendChild(el("span", null, w.length > 1
+    ? "Alle Felder werden gemittelt (" + w.join(" · ") + "): einen falschen Wert überschreiben oder löschen, nicht nur dazuschreiben."
+    : (art === "neu" ? "Neuen Wert über den alten (" + w[0] + ") schreiben oder erst die Werte leeren"
+                     : "Weicht der neue Wert ab, ihn über den alten (" + w[0] + ") schreiben") +
+      " – was daneben steht, wird mitgemittelt."));
+  if(art === "neu"){
+    const lb = knopf("danger", "Werte leeren", function(){ leeren(x); });
+    lb.setAttribute("aria-label", "Messwerte von „" + x.name + "“ leeren, um neu zu messen");
+    z.appendChild(lb);
+  }
+  bf.appendChild(z);
 }
 function markierungenZeichnen(){
   const L = pruefungen(), F = befunde(L), je = {};
@@ -1968,7 +2073,12 @@ function markierungenZeichnen(){
       b.appendChild(kuerzel(p));
       b.appendChild(document.createTextNode(" " + (p.status === "BAD" ? "Konflikt: " : "Prüfen: ") + p.title));
       e.appendChild(b);
-      if(andere.length) e.appendChild(massKnoepfe(andere, "Zusammen mit:"));
+      // die Zahlen, damit beim Nachmessen zu sehen ist, ob es besser wird: ganz, wo dieses Maß
+      // verdächtig ist, sonst der erste Satz; zur Streuung nur das eigene Maß, Richtwerte gar nicht
+      const selbst = !!(v && v.neu.concat(v.nach).some(function(w){ return w.p === p; }));
+      const h = p.kind === "Messqualität" ? streuKarte(x) : einzeln(p) ? "" : selbst ? p.text : ersterSatz(p.text);
+      if(h) e.appendChild(el("div","hint", h));
+      if(andere.length) e.appendChild(massKnoepfe(andere, "Zusammen mit:", F));
       box.appendChild(e);
     });
   });
@@ -2153,7 +2263,7 @@ window.addEventListener("popstate", function(){ overlayZu(true); });
 window.addEventListener("resize", kopfhoehe);
 if("ResizeObserver" in window) new ResizeObserver(halte).observe(document.getElementById("main"));
 ["touchstart","wheel","keydown","mousedown"].forEach(function(t){      // wer selbst scrollt, wird nicht festgehalten
-  window.addEventListener(t, function(){ halteZiel = null; }, {passive:true});
+  window.addEventListener(t, function(){ halteZiel = null; if(t !== "keydown") feldZiel = null; }, {passive:true});
 });
 document.addEventListener("keydown", function(e){
   if(e.key === "Escape") overlayZu(false);

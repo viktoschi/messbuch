@@ -98,19 +98,31 @@ When touching a check in `pruefungen()`, compare its results (title/kind/status/
   auseinander"), a `Richtwert` measure is one unless strongly confirmed — then it stays "✓ bestätigt" with
   "ungewöhnlicher Wert" (`F.ungewoehnlich`) instead of "nicht nachmessen". Each suspicion carries `wie`
   (`offen | selten | alle | streuung | richtwert`) for the reason text. BAD suspects = "Neu messen"
-  (card badge, class `neumessen`, header pill cycling through them via `neuSchritt`, filter `neu`), WARN suspects =
+  (card badge, class `neumessen`, header pill cycling through them via `neuLetzt` — the next card after the last one
+  jumped to, by DOM position, since a corrected card drops out of the list — filter `neu`), WARN suspects =
   "Nachmessen empfohlen"; other measured cards show "✓ bestätigt", "grob geprüft" or "nicht gegengeprüft"
-  (`befund_<id>`). A new check that compares two independent ways to the same quantity belongs in `GLEICHUNG`; an
-  inequality or a check with an open-ended tolerance does not.
+  (`befund_<id>`; `befundArt(id, F)` gives this one word for cards and jump buttons alike). "Neu messen" and
+  "Nachmessen" cards add that all fields are averaged (overwrite the wrong value, don't add one next to it);
+  "Neu messen" also offers "Werte leeren" (`leeren()`: empties the three fields, the old values stay visible as
+  `vorher_<id>` until reload, focus goes to Messung 1). A new check that compares two independent ways to the same
+  quantity belongs in `GLEICHUNG`; an inequality or a check with an open-ended tolerance does not.
+- **Repeat measurements**: `mittel()` averages all filled fields (same as the Android version — no median or outlier
+  removal). `streuung()` is the spread rounded to 0.1 as displayed (card: "Spanne x cm", orange above `grenze()`);
+  `ausreisser()`/`streuHinweis()` name the one of three values that deviates from both others, for the
+  "Wiederholgenauigkeit" text only.
 - **Marking & navigation**: `markierungenZeichnen()` gives each card a traffic-light class like the check entries:
   `bad` (in any BAD check), `warn` (WARN only), `ok` (measured, nothing flagged), none without a value. Flagged cards
   get an index line per check at the top (`idx_<id>`: K/P chip + the other measures involved — same chip = measures
-  that belong together) and, below the inputs, the checks with jump buttons to those measures (`auff_<id>`).
-  `pruefboxInhalt()` gives check entries the status class and jump buttons to their measures. Tint colours are the
+  that belong together) and, below the inputs, the checks with their numbers and jump buttons to those measures
+  (`auff_<id>`; the full text where this measure is a suspect, else `ersterSatz()`; for `Messqualität` only this
+  measure's part via `streuKarte()`, nothing for `Richtwert` — their texts list every measure of the app).
+  `pruefboxInhalt()` gives check entries the status class and jump buttons to their measures. `massKnoepfe(ids, text,
+  F)` marks jump buttons with the befund (`masssprung neu|nach|stark`: red/yellow border, "✓"). Tint colours are the
   `--badBg`/`--warnBg`/`--okBg` (+ `--onBad`/`--onWarn` for chip text) tokens in both themes. Always jump with `springe(id)`: images are `loading="lazy"` without a
   reserved size and shift the page while loading, and Safari has no scroll anchoring, so `halte()` (ResizeObserver
   on `#main`) re-aligns the target until the user touches, scrolls or types. `kopfAktualisieren()` likewise keeps the
-  focused input in place when markings above it change.
+  focused input in place when markings above it change, and remembers it (`feldZiel`/`feldOben`) so that `halte()`
+  also puts it back when an image above loads afterwards — until the user touches or scrolls or leaves the field.
 - **Shoulder slope**: `winkel()` derives `shoulder_slope_neck_side_angle` from depth/drop, falling back to heights;
   exported rounded to 0.5°.
 - **`.smis` export**: `baueSmis()` either fills `defaults` into `templateHead`, or — if the user imported their own
