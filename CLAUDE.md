@@ -73,24 +73,35 @@ When touching a check in `pruefungen()`, compare its results (title/kind/status/
   `karte()` (one measure card). Small updates go through `werteInKarte()`, `pillsZeichnen()`, `menueZeichnen()`.
   Overlays (menu, image zoom, dialog) use `overlayAuf()`/`overlayZu()` with history entries so Android "back" closes them.
 - **Cross-checks**: `pruefungen()` is a long list of self-contained checks, each calling
-  `add(title, kind, status, text[, ids])` **exactly once** with status `OK | WARN | BAD | OPEN`. Use `mittel()`,
+  `add(title, kind, status, text[, ids[, gut]])` **exactly once** with status `OK | WARN | BAD | OPEN`. Use `mittel()`,
   `voll()`, `nm()`/`namen()`, `f1()`; emit `OPEN` (with what's needed) when inputs are missing. The result list is
   sorted BAD → WARN → OPEN → OK; each entry carries `nr` (stable check number → element id `pruefung_<nr>`), `ids`
-  (affected measures) and, for BAD/WARN, `zeichen` (`K1…` / `P1…`).
+  (affected measures) and, for BAD/WARN, `zeichen` (`K1…` / `P1…`). `nr` is the call order, so new checks go at the
+  end (before `gelesen = null;`); a check that is split keeps its first part at the old place (see `anteil(i)`:
+  "Vorder- und Rückenanteil ergeben den Umfang: Brust" in place, Taille/Beckenkamm/Hüfte at the end).
 - **Affected measures**: without an explicit `ids` argument, `add()` uses every measure the check read through
   `werte()` since the previous `add()` (tracked in `gelesen`). Pass an explicit list when only part of what was read is
-  at fault (ordered chains, per-item lists, values read only for the explanation text), and `[]` for fit hints that
-  don't doubt a measurement. Kinds `Richtwert`/`Messqualität` judge each measure on its own (`einzeln()`), so their
-  measures aren't shown as belonging together.
+  at fault (ordered chains, per-item lists, values read only for the explanation or the tolerance), and `[]` for fit
+  hints that don't doubt a measurement. Ordered chains (heights, front/back centre, arm depths) use
+  `kette(seq, richtig)`: `ids` = measures of all violated neighbour pairs, `gut` = chain members in order with every
+  other member (all pairs checked, not only neighbours), text = first violation only. Kinds `Richtwert`/`Messqualität`
+  judge each measure on its own (`einzeln()`), so their measures aren't shown as belonging together; a `Richtwert`
+  check's `gut` is the measures within range.
 - **What to re-measure** (`befunde()`): each check entry also carries `gut` — the measures a passing check vouches
   for (default: its compared measures; checks that read values only for the explanation text, or pass only in parts,
   pass `gut` explicitly as 6th `add()` argument). Passing checks listed in `GLEICHUNG` (two independent ways to the
-  same length) confirm strongly; other passing checks (order, ranges, Richtwerte) only roughly; `Messqualität` not
-  at all. In a BAD/WARN check the suspects are the affected measures without strong confirmation, narrowed to those
-  without any confirmation when possible; if all are confirmed, all are suspects. BAD suspects = "Neu messen"
+  same length) confirm strongly; other passing checks (order, minimum lengths like "Vorderer Weg", ranges,
+  Richtwerte) only roughly; `Messqualität` not at all. In a BAD/WARN check the suspects are the affected measures
+  without strong confirmation, narrowed to those without any confirmation when possible; if all are confirmed, the
+  least often confirmed (fewest `GLEICHUNG` checks) are suspects, and only if all are confirmed equally often, all
+  are. `einzeln()` checks are never narrowed: a `Messqualität` measure is always a suspect ("Messungen liegen zu weit
+  auseinander"), a `Richtwert` measure is one unless strongly confirmed — then it stays "✓ bestätigt" with
+  "ungewöhnlicher Wert" (`F.ungewoehnlich`) instead of "nicht nachmessen". Each suspicion carries `wie`
+  (`offen | selten | alle | streuung | richtwert`) for the reason text. BAD suspects = "Neu messen"
   (card badge, class `neumessen`, header pill cycling through them via `neuSchritt`, filter `neu`), WARN suspects =
   "Nachmessen empfohlen"; other measured cards show "✓ bestätigt", "grob geprüft" or "nicht gegengeprüft"
-  (`befund_<id>`). A new check that compares two independent ways to the same quantity belongs in `GLEICHUNG`.
+  (`befund_<id>`). A new check that compares two independent ways to the same quantity belongs in `GLEICHUNG`; an
+  inequality or a check with an open-ended tolerance does not.
 - **Marking & navigation**: `markierungenZeichnen()` gives each card a traffic-light class like the check entries:
   `bad` (in any BAD check), `warn` (WARN only), `ok` (measured, nothing flagged), none without a value. Flagged cards
   get an index line per check at the top (`idx_<id>`: K/P chip + the other measures involved — same chip = measures

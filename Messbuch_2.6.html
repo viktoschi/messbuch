@@ -451,6 +451,17 @@ function pruefungen(){
             ids:(ids || auto).filter(einmal), gut:gut.filter(einmal)});
     gelesen = {};
   };
+  // Reihenfolge-Kette: richtig(a,b) sagt, ob b nach a richtig liegt. erster = Index des ersten Verstoßes
+  // (für den Text), falsch = die Maße aller verletzten Nachbarpaare (betroffen), gut = die Maße, die mit
+  // keinem anderen Kettenglied falsch liegen – dafür alle Paare, nicht nur Nachbarn.
+  const kette = function(seq, richtig){
+    const v = seq.map(mittel), falsch = [], schief = {}; let erster = -1;
+    for(let i=1;i<seq.length;i++) if(!richtig(v[i-1], v[i])){ if(erster < 0) erster = i; falsch.push(seq[i-1], seq[i]); }
+    for(let i=0;i<seq.length;i++) for(let j=i+1;j<seq.length;j++)
+      if(!richtig(v[i], v[j])) schief[seq[i]] = schief[seq[j]] = true;
+    return {erster:erster, falsch:falsch.filter(einmal), gut:seq.filter(function(id){ return !schief[id]; })};
+  };
+  const faellt = function(a,b){ return b < a; }, steigt = function(a,b){ return b > a; };
 
   // 1
   (function(){
@@ -458,13 +469,12 @@ function pruefungen(){
       "x_height_highhip","x_height_hip","height_gluteal_fold","height_knee","height_calf","height_ankle_high","height_ankle"]
       .filter(i => !isNaN(mittel(i)));
     if(seq.length < 3){ add("Höhen fallen von oben nach unten","Geometrie","OPEN","Mindestens drei Höhen eintragen."); return; }
-    for(let i=1;i<seq.length;i++){
-      if(mittel(seq[i]) >= mittel(seq[i-1])){
-        add("Höhen fallen von oben nach unten","Geometrie","BAD",
-          nm(seq[i])+" ("+f1(mittel(seq[i]))+") liegt nicht unter "+nm(seq[i-1])+" ("+f1(mittel(seq[i-1]))+").",
-          [seq[i-1], seq[i]]);
-        return;
-      }
+    const k = kette(seq, faellt), i = k.erster;
+    if(i > 0){
+      add("Höhen fallen von oben nach unten","Geometrie","BAD",
+        nm(seq[i])+" ("+f1(mittel(seq[i]))+") liegt nicht unter "+nm(seq[i-1])+" ("+f1(mittel(seq[i-1]))+").",
+        k.falsch, k.gut);
+      return;
     }
     add("Höhen fallen von oben nach unten","Geometrie","OK",seq.length+" Höhen in richtiger Reihenfolge.");
   })();
@@ -474,13 +484,20 @@ function pruefungen(){
     add("Vorderer Weg Brust → Unterbrust → Taille","Geometrie","OPEN",
       "Braucht "+namen("height_bustpoint","bustpoint_to_lowbust","lowbust_to_waist_f","height_waist_side")+".");
   else{
+    // Keine Gleichung, nur eine Mindestlänge: Der Weg über die Brust ist nie kürzer als senkrecht, nach oben
+    // gibt es keine feste Grenze. Bei voller Brust läuft er weiter nach hinten – c ist eine eigene Annahme.
     const est = mittel("height_bustpoint")-mittel("bustpoint_to_lowbust")-mittel("lowbust_to_waist_f");
     const dd = mittel("height_waist_side")-est;
+    const cup = voll("bust_circ","lowbust_circ") ? mittel("bust_circ")-mittel("lowbust_circ") : NaN;
+    const c = isNaN(cup) ? 0 : Math.max(0, Math.floor((cup-12)/2)), bis = 3+c;
     add("Vorderer Weg Brust → Unterbrust → Taille","Geometrie",
-      (dd < -1.5 || dd > 4.5) ? "BAD" : (dd < -0.5 || dd > 3) ? "WARN" : "OK",
+      dd < -1.5 ? "BAD" : (dd < -0.5 || dd > bis) ? "WARN" : "OK",
       "Brustpunkthöhe minus die beiden Längen ergibt "+f1(est)+" cm, gemessene Taillenhöhe "+
       f1(mittel("height_waist_side"))+" cm, Abstand "+f1(dd)+
-      " cm. Die Längen laufen über die Brust und sind etwas länger als senkrecht, deshalb sind 0–3 cm normal.");
+      " cm. Die Längen laufen über die Brust und sind länger als senkrecht, kürzer dürfen sie nicht sein. "+
+      (c ? "Bei voller Brust (Brust minus Unterbrust "+f1(cup)+" cm) läuft der Weg weiter nach hinten, deshalb gelten hier 0–"+
+           bis+" cm als normal (eigene Annahme)." : "Üblich sind 0–3 cm (eigene Annahme)."),
+      ["height_bustpoint","bustpoint_to_lowbust","lowbust_to_waist_f","height_waist_side"]);
   }
 
   // 3
@@ -676,30 +693,34 @@ function pruefungen(){
     const HH = mittel("height");
     if(isNaN(HH)){ add("Proportionen zur Körpergröße","Richtwert","OPEN","Braucht die Körpergröße."); return; }
     const R2 = [["height_neck_side",.815,.865],["height_waist_side",.585,.655],
-                ["height_gluteal_fold",.42,.49],["height_knee",.255,.305],["foot_length",.135,.165]];
-    const out = [], betr = []; let bad = 0, have = 0;
+                ["height_gluteal_fold",.42,.49],["height_knee",.255,.305],["foot_length",.135,.165],
+                ["b_armhole_depth",.11,.145]];   // Armlochtiefe: Buch-Tabelle S. 121 etwa 19–25 cm bei 160–172 cm
+    const out = [], betr = [], passt = []; let bad = 0, have = 0;
     R2.forEach(function(p){
       const v = mittel(p[0]); if(isNaN(v)) return;
       have++; const r = v/HH;
       if(r < p[1] || r > p[2]){ bad++; betr.push(p[0]); out.push(nm(p[0])+" "+f1(v)+" cm, erwartet etwa "+f1(p[1]*HH)+"–"+f1(p[2]*HH)); }
+      else passt.push(p[0]);
     });
     if(!have) add("Proportionen zur Körpergröße","Richtwert","OPEN","Braucht Körpergröße und weitere Höhen.");
     else if(bad) add("Proportionen zur Körpergröße","Richtwert","WARN",
-      out.join("; ")+". Nur Richtwerte – nachmessen, wenn du unsicher bist.",betr);
-    else add("Proportionen zur Körpergröße","Richtwert","OK",have+" Höhen passen zu "+f1(HH)+" cm Körpergröße.");
+      out.join("; ")+". Nur Richtwerte – nachmessen, wenn du unsicher bist.",betr,
+      passt.length ? ["height"].concat(passt) : []);   // Richtwerte gelten je Maß: die passenden bleiben grob geprüft
+    else add("Proportionen zur Körpergröße","Richtwert","OK",have+" Maße passen zu "+f1(HH)+" cm Körpergröße.");
   })();
 
   // 18
   (function(){
     const R3 = [["head_circ",51,61],["neck_circ",29,46],
                 ["bustpoint_to_bustpoint",14,24],["shoulder_length",9.5,15.5]];
-    const out = [], betr = []; let have = 0;
+    const out = [], betr = [], passt = []; let have = 0;
     R3.forEach(function(p){
       const v = mittel(p[0]); if(isNaN(v)) return;
       have++; if(v < p[1] || v > p[2]){ betr.push(p[0]); out.push(nm(p[0])+" "+f1(v)+" cm (üblich "+f1(p[1])+"–"+f1(p[2])+")"); }
+      else passt.push(p[0]);
     });
     if(!have) add("Typische Umfänge","Richtwert","OPEN","Braucht Kopf, Hals, Brustpunktabstand oder Schulterlänge.");
-    else if(out.length) add("Typische Umfänge","Richtwert","WARN",out.join("; ")+".",betr);
+    else if(out.length) add("Typische Umfänge","Richtwert","WARN",out.join("; ")+".",betr,passt);
     else add("Typische Umfänge","Richtwert","OK",have+" Maße im üblichen Bereich.");
   })();
 
@@ -759,7 +780,8 @@ function pruefungen(){
     add("Schritttiefe auf zwei Wegen","Buchregel", ad<=1.5?"OK":ad<=3?"WARN":"BAD",
       "Taillenhöhe minus Schritthöhe ergibt "+f1(aus)+" cm, im Sitzen gemessen "+
       f1(mittel("b_rise_sitting"))+" cm, Abweichung "+f1(dd)+
-      " cm. Das Buch beschreibt beide Wege (S. 106–107); einer davon ist vermutlich nachzumessen.");
+      " cm. Das Buch beschreibt beide Wege (S. 106–107)"+
+      (ad<=1.5 ? "; sie stimmen überein." : "; einer davon ist vermutlich nachzumessen."));
   }
 
   if(!voll("b_trunk_length","b_neck_back_to_waist","b_neck_front_to_waist","b_crotch_length"))
@@ -803,34 +825,34 @@ function pruefungen(){
     const t = "Vordere Mitte: Brust, Unterbrust, Taille";
     const ids = ["b_jugular_to_bust","b_jugular_to_underbust","b_neck_front_to_waist"].filter(hat);
     if(ids.length < 2){ add(t,"Geometrie","OPEN","Braucht mindestens zwei der Maße ab Jugulum."); return; }
-    for(let i=1;i<ids.length;i++){
-      if(!(mittel(ids[i]) > mittel(ids[i-1]))){
-        add(t,"Geometrie","BAD",nm(ids[i])+" ("+f1(mittel(ids[i]))+") ist nicht länger als "+
-          nm(ids[i-1])+" ("+f1(mittel(ids[i-1]))+").",[ids[i-1], ids[i]]);
-        return;
-      }
+    const k = kette(ids, steigt), i = k.erster;
+    if(i > 0){
+      add(t,"Geometrie","BAD",nm(ids[i])+" ("+f1(mittel(ids[i]))+") ist nicht länger als "+
+        nm(ids[i-1])+" ("+f1(mittel(ids[i-1]))+").",k.falsch,k.gut);
+      return;
     }
-    add(t,"Geometrie","OK",ids.map(function(i){ return f1(mittel(i)); }).join(" < ")+" cm ab Jugulum.");
+    add(t,"Geometrie","OK",ids.map(function(i){ return f1(mittel(i)); }).join(" < ")+" cm ab Jugulum.",ids);
   })();
 
   (function(){
     const t = "Hintere Mitte: X-Rücken, Achselhöhe, Brustlinie, Taille";
     const ids = ["b_xback_depth","b_armhole_depth","b_neck_back_to_bust","b_neck_back_to_waist"].filter(hat);
     if(ids.length < 2){ add(t,"Geometrie","OPEN","Braucht mindestens zwei der Maße ab 7. Halswirbel."); return; }
-    for(let i=1;i<ids.length;i++){
-      if(!(mittel(ids[i]) > mittel(ids[i-1]))){
-        add(t,"Geometrie","BAD",nm(ids[i])+" ("+f1(mittel(ids[i]))+") ist nicht länger als "+
-          nm(ids[i-1])+" ("+f1(mittel(ids[i-1]))+").",[ids[i-1], ids[i]]);
-        return;
-      }
+    const k = kette(ids, steigt), i = k.erster;
+    if(i > 0){
+      add(t,"Geometrie","BAD",nm(ids[i])+" ("+f1(mittel(ids[i]))+") ist nicht länger als "+
+        nm(ids[i-1])+" ("+f1(mittel(ids[i-1]))+").",k.falsch,k.gut);
+      return;
     }
     let st = "OK", txt = ids.map(function(i){ return f1(mittel(i)); }).join(" < ")+" cm ab 7. Halswirbel.";
+    const paar = ["b_armhole_depth","b_neck_back_to_bust"];   // nur der Abstand dieser beiden kann WARN auslösen
     if(voll("b_armhole_depth","b_neck_back_to_bust")){
       const dd = mittel("b_neck_back_to_bust")-mittel("b_armhole_depth");
       txt += " Die Brustlinie liegt "+f1(dd)+" cm unter der Achselhöhe; das Buch nennt 2–4 cm (S. 61, 70).";
       if(dd < 0.5 || dd > 6) st = "WARN";
     }
-    add(t,"Geometrie",st,txt,["b_armhole_depth","b_neck_back_to_bust"]);   // nur die Brustlinie kann WARN auslösen
+    // die Reihenfolge stimmt: bei OK spricht die Prüfung für die ganze Kette, bei WARN für die übrigen Glieder
+    add(t,"Geometrie",st,txt,paar,st === "OK" ? ids : ids.filter(function(i){ return paar.indexOf(i) < 0; }));
   })();
 
   if(!voll("b_neck_back_to_waist","b_neck_front_to_waist"))
@@ -849,16 +871,17 @@ function pruefungen(){
       "Braucht "+namen("b_bustpoint_to_waist","height_bustpoint","height_waist_side")+".");
   else{
     const senk = mittel("height_bustpoint")-mittel("height_waist_side");
-    const g = mittel("b_bustpoint_to_waist"), dd = g-senk;
-    let st = (dd >= -0.5 && dd <= 3) ? "OK" : (dd >= -1.5 && dd <= 5) ? "WARN" : "BAD";
+    const g = mittel("b_bustpoint_to_waist"), dd = g-senk, ad = Math.abs(dd);
+    let st = ad<=1.5 ? "OK" : ad<=3 ? "WARN" : "BAD";
     let betr = st === "OK" ? [] : ["b_bustpoint_to_waist","height_bustpoint","height_waist_side"];
+    // nur das Lot gegen den Höhenunterschied ist eine Gleichung; der Weg über die Unterbrust ist bloß eine Obergrenze
     const verglichen = ["b_bustpoint_to_waist","height_bustpoint","height_waist_side"];
     let txt = "Gerade gemessen "+f1(g)+" cm, Höhenunterschied Brustpunkt–Taille "+f1(senk)+
-      " cm, Unterschied "+f1(dd)+" cm. Die gerade Linie ist etwas länger als der senkrechte Abstand, weil der Brustpunkt vor der Taille liegt (Buch S. 71).";
+      " cm, Unterschied "+f1(dd)+" cm. Die Karte misst das Lot, es sollte also etwa so lang sein wie der Höhenunterschied. "+
+      "Im Buchbild endet die Linie schräg auf dem Taillenband und wäre etwas länger (Buch S. 70–71).";
     if(voll("bustpoint_to_lowbust","lowbust_to_waist_f")){
       const ueber = mittel("bustpoint_to_lowbust")+mittel("lowbust_to_waist_f");
       txt += " Am Körper entlang über die Unterbrust sind es "+f1(ueber)+" cm.";
-      verglichen.push("bustpoint_to_lowbust","lowbust_to_waist_f");
       if(g > ueber+1){ if(st === "OK") st = "WARN";
         betr = betr.concat(["b_bustpoint_to_waist","bustpoint_to_lowbust","lowbust_to_waist_f"]);
         txt += " Die gerade Linie sollte nicht deutlich länger sein als der Weg am Körper."; }
@@ -947,27 +970,23 @@ function pruefungen(){
       " cm, Abweichung "+f1(dd)+" cm. Laut Buch sind beide fast gleich lang (S. 54).");
   }
 
-  (function(){
-    const t = "Vorder- und Rückenanteil ergeben den Umfang";
-    const P = [["bust_circ","b_bust_arc_f","b_bust_arc_b"],["waist_circ","b_waist_arc_f","b_waist_arc_b"],
-               ["highhip_circ","b_highhip_arc_f","b_highhip_arc_b"],["hip_circ","b_hip_arc_f","b_hip_arc_b"]];
-    const auf = [], gut = [], betr = [], passt = []; let have = 0, worst = 0;
-    P.forEach(function(p){
-      if(!voll(p[0],p[1],p[2])) return;
-      have++;
-      const v = mittel(p[1]), h = mittel(p[2]), dd = v+h-mittel(p[0]);
-      worst = Math.max(worst, Math.abs(dd));
-      if(Math.abs(dd) > 1) betr.push(p[0],p[1],p[2]); else passt.push(p[0],p[1],p[2]);
-      (Math.abs(dd) > 1 ? auf : gut).push(nm(p[0])+": vorn "+f1(v)+" + hinten "+f1(h)+" = "+f1(v+h)+
-        " gegen "+f1(mittel(p[0]))+" cm");
-    });
-    if(!have) add(t,"Geometrie","OPEN","Braucht je Höhe den Umfang und beide Anteile (optionale Gruppe).");
-    else if(auf.length) add(t,"Geometrie", worst<=2?"WARN":"BAD",
-      auf.join("; ")+". Vermutlich lagen die Seitenpunkte vorn und hinten nicht an derselben Stelle (Buch S. 24–25).",betr,passt);
-    else add(t,"Geometrie","OK",gut.join("; ")+
-      ". Laut Buch ist bis zum Bauch meist der Vorderteil größer, am Becken sind beide etwa gleich, an der Hüfte ist der Rückenteil größer (S. 25).",
-      undefined,passt);
-  })();
+  // Vorder- und Rückenanteil je Höhe eine eigene Prüfung mit eigenem Status. Die Brust steht hier,
+  // Taille, Beckenkamm und Hüfte am Ende – so behalten alle übrigen Prüfungen ihre Nummer.
+  const ANTEIL = [
+    ["Brust","bust_circ","b_bust_arc_f","b_bust_arc_b","Laut Buch ist hier meist der Vorderteil größer (S. 25)."],
+    ["Taille","waist_circ","b_waist_arc_f","b_waist_arc_b","Laut Buch ist hier meist der Vorderteil größer (S. 25)."],
+    ["Beckenkamm","highhip_circ","b_highhip_arc_f","b_highhip_arc_b","Laut Buch sind am Becken beide etwa gleich (S. 25)."],
+    ["Hüfte","hip_circ","b_hip_arc_f","b_hip_arc_b","Laut Buch ist an der Hüfte der Rückenteil größer (S. 25)."]];
+  const anteil = function(i){
+    const p = ANTEIL[i], t = "Vorder- und Rückenanteil ergeben den Umfang: " + p[0];
+    if(!voll(p[1],p[2],p[3])){
+      add(t,"Geometrie","OPEN","Braucht "+nm(p[1])+" und beide Anteile (optionale Gruppe)."); return; }
+    const v = mittel(p[2]), h = mittel(p[3]), u = mittel(p[1]), dd = v+h-u, a = Math.abs(dd);
+    add(t,"Geometrie", a<=1?"OK":a<=2?"WARN":"BAD",
+      "Vorn "+f1(v)+" + hinten "+f1(h)+" = "+f1(v+h)+" cm, ganzer Umfang "+f1(u)+" cm, Abweichung "+f1(dd)+" cm. "+
+      (a<=1 ? p[4] : "Vermutlich lagen die Seitenpunkte vorn und hinten nicht an derselben Stelle (Buch S. 24–25)."));
+  };
+  anteil(0);
 
   (function(){
     const t = "Hüfttiefe vorn, seitlich, hinten";
@@ -981,7 +1000,8 @@ function pruefungen(){
     add(t,"Geometrie", komisch?"WARN":"OK", teile.join(", ")+
       " cm. Laut Buch verlängert der Po die hintere Tiefe, die Unterschiede können deutlich sein (S. 105)."+
       (komisch?" Bei dir ist die hintere Tiefe kürzer als die vordere – nachmessen.":""),
-      ["b_waist_to_hip_f","b_waist_to_hip_b"]);
+      ["b_waist_to_hip_f","b_waist_to_hip_b"],
+      komisch || !voll("b_waist_to_hip_f","b_waist_to_hip_b") ? [] : ["b_waist_to_hip_f","b_waist_to_hip_b"]);   // verglichen wird nur vorn mit hinten
   })();
 
   (function(){
@@ -1010,7 +1030,8 @@ function pruefungen(){
     }
     add(t,"Geometrie", prob.length?"WARN":"OK", teile.join(", ")+" cm."+
       (prob.length ? " Auffällig: "+prob.join("; ")+" (Buch S. 44)." : "")+zus, betr,
-      prob.length ? [] : ["neck_circ","b_neck_mid_circ","b_neck_top_circ"].filter(hat));   // Kragen nur im Text
+      prob.length ? [] : (hat("b_neck_mid_circ") ? ["neck_circ","b_neck_mid_circ"] : [])
+        .concat(voll("b_neck_mid_circ","b_neck_top_circ") ? ["b_neck_top_circ"] : []));   // nur tatsächlich Verglichenes; Kragen nur im Text
   })();
 
   if(!voll("b_hand_circ","arm_wrist_circ"))
@@ -1052,14 +1073,13 @@ function pruefungen(){
     const ids = ["b_arm_top_depth","b_arm_bicep_depth","b_arm_above_elbow_depth","b_arm_elbow_depth",
                  "b_arm_forearm_depth","b_arm_upper_wrist_depth","arm_shoulder_tip_to_wrist"].filter(hat);
     if(ids.length < 2){ add(t,"Geometrie","OPEN","Braucht mindestens zwei Tiefen ab Schulterspitze."); return; }
-    for(let i=1;i<ids.length;i++){
-      if(!(mittel(ids[i]) > mittel(ids[i-1]))){
-        add(t,"Geometrie","BAD",nm(ids[i])+" ("+f1(mittel(ids[i]))+") ist nicht länger als "+
-          nm(ids[i-1])+" ("+f1(mittel(ids[i-1]))+").",[ids[i-1], ids[i]]);
-        return;
-      }
+    const k = kette(ids, steigt), i = k.erster;
+    if(i > 0){
+      add(t,"Geometrie","BAD",nm(ids[i])+" ("+f1(mittel(ids[i]))+") ist nicht länger als "+
+        nm(ids[i-1])+" ("+f1(mittel(ids[i-1]))+").",k.falsch,k.gut);
+      return;
     }
-    add(t,"Geometrie","OK",ids.map(function(i){ return f1(mittel(i)); }).join(" < ")+" cm ab Schulterspitze (Buch S. 54).");
+    add(t,"Geometrie","OK",ids.map(function(i){ return f1(mittel(i)); }).join(" < ")+" cm ab Schulterspitze (Buch S. 54).",ids);
   })();
 
   (function(){
@@ -1068,17 +1088,20 @@ function pruefungen(){
       add(t,"Buchregel","OPEN","Braucht Bizeps, Umfang über dem Ellbogen oder oberes Handgelenk."); return; }
     const ids = ["arm_upper_circ","b_arm_bicep_circ","b_arm_above_elbow_circ","b_arm_elbow_circ",
                  "arm_lower_circ","b_arm_upper_wrist_circ","arm_wrist_circ"].filter(hat);
-    const prob = [], betr = [];
-    if(voll("arm_upper_circ","b_arm_above_elbow_circ") && !(mittel("b_arm_above_elbow_circ") < mittel("arm_upper_circ"))){
-      prob.push("der Umfang über dem Ellbogen ist nicht kleiner als der Oberarm"); betr.push("arm_upper_circ","b_arm_above_elbow_circ"); }
-    if(voll("b_arm_elbow_circ","b_arm_above_elbow_circ") && mittel("b_arm_above_elbow_circ") > mittel("b_arm_elbow_circ")+0.5){
-      prob.push("der Umfang über dem Ellbogen ist größer als der Ellbogen, laut Buch ist er meist kleiner");
-      betr.push("b_arm_above_elbow_circ","b_arm_elbow_circ"); }
-    if(voll("arm_lower_circ","b_arm_upper_wrist_circ") && !(mittel("b_arm_upper_wrist_circ") < mittel("arm_lower_circ"))){
-      prob.push("das obere Handgelenk ist nicht schmaler als der Unterarm"); betr.push("arm_lower_circ","b_arm_upper_wrist_circ"); }
+    const prob = [], betr = [], gepr = [];   // gepr: die Paare, die wirklich verglichen wurden
+    if(voll("arm_upper_circ","b_arm_above_elbow_circ")){ gepr.push("arm_upper_circ","b_arm_above_elbow_circ");
+      if(!(mittel("b_arm_above_elbow_circ") < mittel("arm_upper_circ"))){
+        prob.push("der Umfang über dem Ellbogen ist nicht kleiner als der Oberarm"); betr.push("arm_upper_circ","b_arm_above_elbow_circ"); } }
+    if(voll("b_arm_elbow_circ","b_arm_above_elbow_circ")){ gepr.push("b_arm_above_elbow_circ","b_arm_elbow_circ");
+      if(mittel("b_arm_above_elbow_circ") > mittel("b_arm_elbow_circ")+0.5){
+        prob.push("der Umfang über dem Ellbogen ist größer als der Ellbogen, laut Buch ist er meist kleiner");
+        betr.push("b_arm_above_elbow_circ","b_arm_elbow_circ"); } }
+    if(voll("arm_lower_circ","b_arm_upper_wrist_circ")){ gepr.push("arm_lower_circ","b_arm_upper_wrist_circ");
+      if(!(mittel("b_arm_upper_wrist_circ") < mittel("arm_lower_circ"))){
+        prob.push("das obere Handgelenk ist nicht schmaler als der Unterarm"); betr.push("arm_lower_circ","b_arm_upper_wrist_circ"); } }
     add(t,"Buchregel", prob.length?"WARN":"OK",
       ids.map(function(i){ return nm(i)+" "+f1(mittel(i)); }).join(", ")+" cm."+
-      (prob.length ? " Auffällig: "+prob.join("; ")+" (Buch S. 52)." : ""), betr);
+      (prob.length ? " Auffällig: "+prob.join("; ")+" (Buch S. 52)." : ""), betr, prob.length ? [] : gepr);
   })();
 
   (function(){
@@ -1125,6 +1148,41 @@ function pruefungen(){
     } else st = (dd > 3 && dd < 14) ? "OK" : "WARN";
     add(t,"Geometrie",st,txt+". Das Compendium zieht genau diesen Halsbogen ab, um die Höhe der Brustlinie zu finden.",betr);
   })();
+
+  // ── Ergänzt nach Fassung 2.6 ──
+  // Brustlinie bis Taille zweimal: vorn in der Mitte und als Höhenunterschied über dem Boden.
+  if(!voll("b_neck_front_to_waist","b_jugular_to_bust","height_bustpoint","height_waist_side"))
+    add("Brustlinie vorn gegen Brustpunkthöhe","Geometrie","OPEN",
+      "Braucht "+namen("b_neck_front_to_waist","b_jugular_to_bust","height_bustpoint","height_waist_side")+".");
+  else{
+    const vorn = mittel("b_neck_front_to_waist")-mittel("b_jugular_to_bust");
+    const hoch = mittel("height_bustpoint")-mittel("height_waist_side");
+    const dd = vorn-hoch, ad = Math.abs(dd);
+    add("Brustlinie vorn gegen Brustpunkthöhe","Geometrie", ad<=1?"OK":ad<=2?"WARN":"BAD",
+      "Vorderlänge minus Jugulum bis Brustlinie ergibt "+f1(vorn)+" cm, Brustpunkthöhe minus Taillenhöhe "+f1(hoch)+
+      " cm, Abweichung "+f1(dd)+" cm. Beides ist der Abstand von der Brustlinie bis zur Taille, einmal in der vorderen Mitte, "+
+      "einmal über dem Boden; Brustumfang und Taille liegen waagrecht (eigene Prüfung, Längen nach Buch S. 70).");
+  }
+
+  // Achselhöhe bis Taille zweimal: an der Seite und hinten. Die Rückenlänge folgt dem Rücken, die
+  // Armlochtiefe ist senkrecht gemessen – die Seite fällt deshalb eher etwas kürzer aus.
+  if(!voll("b_side_depth","b_neck_back_to_waist","b_armhole_depth"))
+    add("Achselhöhe seitlich und hinten","Geometrie","OPEN",
+      "Braucht "+namen("b_side_depth","b_neck_back_to_waist","b_armhole_depth")+".");
+  else{
+    const hinten = mittel("b_neck_back_to_waist")-mittel("b_armhole_depth");
+    const dd = mittel("b_side_depth")-hinten;
+    add("Achselhöhe seitlich und hinten","Geometrie",
+      (dd >= -2.5 && dd <= 1.5) ? "OK" : (dd >= -4 && dd <= 3) ? "WARN" : "BAD",
+      "Seitenlänge "+f1(mittel("b_side_depth"))+" cm, Rückenlänge minus Armlochtiefe "+f1(hinten)+
+      " cm, Unterschied "+f1(dd)+" cm. Beide reichen von der Achselhöhe bis zur Taille, an der Seite und in der hinteren "+
+      "Mitte (Buch S. 70–71). Die Rückenlänge folgt dem Rücken, die Armlochtiefe ist senkrecht gemessen; die Seite darf "+
+      "deshalb bis 2,5 cm kürzer sein (eigene Annahme)."+
+      (dd > 1.5 ? " Ist die Seite zu lang, wurde sie meist mit gehobenem Arm oder ab einem zu hohen Punkt gemessen. "+
+        "Die Achselhöhe ist der hintere Rand der Achsel, vorn liegt sie höher (Buch S. 12, 15)." : ""));
+  }
+
+  anteil(1); anteil(2); anteil(3);   // Vorder- und Rückenanteil an Taille, Beckenkamm und Hüfte (Brust oben)
 
   gelesen = null;
   const rang = {BAD:0, WARN:1, OPEN:2, OK:3};
@@ -1788,38 +1846,57 @@ function zeigeMass(id){
 }
 /* ── Was muss neu gemessen werden? ─────────────────────────
    Bestätigt ist ein Maß, wenn eine bestandene Gleichungsprüfung für es spricht: zwei unabhängige
-   Wege, die dieselbe Strecke ergeben müssen. Reihenfolge- und Richtwertprüfungen prüfen nur grob,
-   die Wiederholgenauigkeit gar nicht. In einer auffälligen Prüfung sind die Maße verdächtig, die
-   nicht bestätigt sind; sind darunter grob geprüfte und ungeprüfte, bleiben die ungeprüften.
-   Sind alle bestätigt, lässt sich nichts eingrenzen – dann gelten alle als verdächtig. */
+   Wege, die dieselbe Strecke ergeben müssen. Reihenfolge-, Mindestlängen- und Richtwertprüfungen
+   prüfen nur grob, die Wiederholgenauigkeit gar nicht. In einer auffälligen Prüfung sind die Maße
+   verdächtig, die nicht bestätigt sind; sind darunter grob geprüfte und ungeprüfte, bleiben die
+   ungeprüften. Sind alle bestätigt, bleiben die am seltensten bestätigten; sind alle gleich oft
+   bestätigt, lässt sich nichts eingrenzen – dann gelten alle als verdächtig.
+   Streuung und Richtwerte bewerten jedes Maß für sich, da wird nicht eingegrenzt: Streut ein Maß,
+   ist es immer verdächtig. Liegt es außerhalb des Richtwerts, ist es verdächtig, solange keine
+   Gleichung es bestätigt – sonst gilt es als ungewöhnlich, aber bestätigt. */
 const GLEICHUNG = {
-  "Vorderer Weg Brust → Unterbrust → Taille":1, "Taille bis Boden gegen Taillenhöhe":1,
+  "Taille bis Boden gegen Taillenhöhe":1,
   "Beckenkamm von oben und von unten":1, "Hüfte von oben und von unten":1,
   "Schulterlänge aus Tiefe und Abfall":1, "Halsbreite vorn = hinten":1, "Schrittlänge vorn und hinten":1,
   "Schritttiefe auf zwei Wegen":1, "Unterbrust bis Taille auf zwei Wegen":1, "Brustpunkt bis Taille":1,
   "Seitenlinie Taille bis Knöchel in zwei Stücken":1, "Oberschenkel-Linie von oben und von unten":1,
   "Außenbein gegen Oberschenkel-Linie":1, "Innenbein gegen Schritthöhe":1,
   "Schritttiefe aus Außen- und Innenbein":1, "Innenarm gegen Außenarm":1,
-  "Vorder- und Rückenanteil ergeben den Umfang":1, "Armlochumfang gegen die beiden Bögen":1
+  "Vorder- und Rückenanteil ergeben den Umfang: Brust":1, "Vorder- und Rückenanteil ergeben den Umfang: Taille":1,
+  "Vorder- und Rückenanteil ergeben den Umfang: Beckenkamm":1, "Vorder- und Rückenanteil ergeben den Umfang: Hüfte":1,
+  "Armlochumfang gegen die beiden Bögen":1, "Brustlinie vorn gegen Brustpunkthöhe":1, "Achselhöhe seitlich und hinten":1
 };
 function befunde(L){
-  const stark = {}, grob = {}, verdacht = {};
+  const stark = {}, grob = {}, verdacht = {}, ungewoehnlich = {};
   L.forEach(function(p){
     if(p.kind === "Messqualität") return;
     const ziel = GLEICHUNG[p.title] ? stark : grob;
     p.gut.forEach(function(id){ (ziel[id] = ziel[id] || []).push(p); });
   });
+  const wieOft = function(id){ return stark[id].length; };
   L.forEach(function(p){
     const ids = betroffene(p); if(!ids.length) return;
-    const offen = ids.filter(function(id){ return !stark[id]; });
-    const roh = offen.filter(function(id){ return !grob[id]; });
-    const v = roh.length ? roh : offen.length ? offen : ids;
+    let v, wie;
+    if(p.kind === "Messqualität"){ v = ids; wie = "streuung"; }
+    else if(p.kind === "Richtwert"){
+      v = ids.filter(function(id){ return !stark[id]; }); wie = "richtwert";
+      ids.forEach(function(id){ if(stark[id]) (ungewoehnlich[id] = ungewoehnlich[id] || []).push(p); });
+    } else {
+      const offen = ids.filter(function(id){ return !stark[id]; });
+      const roh = offen.filter(function(id){ return !grob[id]; });
+      if(offen.length){ v = roh.length ? roh : offen; wie = "offen"; }
+      else {
+        const selten = Math.min.apply(null, ids.map(wieOft));
+        v = ids.filter(function(id){ return wieOft(id) === selten; });
+        wie = v.length < ids.length ? "selten" : "alle";
+      }
+    }
     v.forEach(function(id){
       const b = verdacht[id] = verdacht[id] || {neu:[], nach:[]};
-      (p.status === "BAD" ? b.neu : b.nach).push({p:p, anzahl:v.length, eingegrenzt:offen.length > 0});
+      (p.status === "BAD" ? b.neu : b.nach).push({p:p, anzahl:v.length, wie:wie});
     });
   });
-  return {stark:stark, grob:grob, verdacht:verdacht};
+  return {stark:stark, grob:grob, verdacht:verdacht, ungewoehnlich:ungewoehnlich};
 }
 function neuZuMessen(F){
   F = F || befunde(pruefungen());
@@ -1835,15 +1912,22 @@ function befundZeichnen(x, F, auffaellig){
   if(bf.hidden) return;
   const v = F.verdacht[x.id];
   const grund = function(e){
-    return e.p.zeichen + ": " + (!e.eingegrenzt ? "alle Maße sind anderswo bestätigt, nicht eingrenzbar"
+    return e.p.zeichen + ": " + (e.wie === "streuung" ? "Messungen liegen zu weit auseinander"
+      : e.wie === "richtwert" ? "außerhalb des üblichen Bereichs"
+      : e.wie === "alle" ? "alle Maße sind anderswo bestätigt, nicht eingrenzbar"
+      : e.wie === "selten" ? "alle Maße sind anderswo bestätigt, " +
+          (e.anzahl === 1 ? "dieses am seltensten" : "dieses gehört zu den " + e.anzahl + " am seltensten bestätigten")
       : e.anzahl === 1 ? "einziges Maß, das keine andere Prüfung bestätigt"
       : "eins von " + e.anzahl + " Maßen, die keine andere Prüfung bestätigt");
   };
+  const u = F.ungewoehnlich[x.id];   // außerhalb eines Richtwerts, aber durch eine Gleichung bestätigt
   let art, kurz, text;
   if(v && v.neu.length){ art = "neu"; kurz = "Neu messen"; text = v.neu.concat(v.nach).map(grund).join("; "); }
   else if(v && v.nach.length){ art = "nach"; kurz = "Nachmessen empfohlen"; text = v.nach.map(grund).join("; "); }
   else if(F.stark[x.id]){ art = "stark"; kurz = "✓ bestätigt";
-    text = "durch " + titelListe(F.stark[x.id]) + (auffaellig ? " – nicht nachmessen" : ""); }
+    text = "durch " + titelListe(F.stark[x.id]) +
+      (u ? " – " + u.map(function(p){ return p.zeichen; }).join(", ") + ": ungewöhnlicher Wert, passt aber zu den anderen Maßen"
+         : auffaellig ? " – nicht nachmessen" : ""); }
   else if(F.grob[x.id]){ art = "grob"; kurz = "grob geprüft"; text = "nur Reihenfolge oder Richtwert: " + titelListe(F.grob[x.id]); }
   else { art = "ungeprueft"; kurz = "nicht gegengeprüft"; text = "keine Prüfung vergleicht dieses Maß mit anderen"; }
   bf.classList.add(art);
