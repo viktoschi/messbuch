@@ -36,6 +36,8 @@ header{position:sticky;top:0;z-index:5;background:var(--tape);color:#3A2A06;
 .count{font-weight:700;font-variant-numeric:tabular-nums}
 .pills{display:flex;gap:8px;padding:0 14px 8px;overflow-x:auto;scrollbar-width:none}
 .pills::-webkit-scrollbar{display:none}
+.pills.ueberlauf{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 36px),transparent);
+  mask-image:linear-gradient(90deg,#000 calc(100% - 36px),transparent)}
 .pill{flex:0 0 auto;padding:10px 14px;min-height:44px;border-radius:999px;font-weight:600;font-size:15px;line-height:1.4;
   border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;white-space:nowrap}
 .pill.ok{color:var(--ok)} .pill.warn{color:var(--warn)} .pill.bad{color:var(--bad)}
@@ -78,6 +80,7 @@ details.imbild summary{font-size:15px;font-weight:600;padding:11px 0}
 .mehr figcaption{font-size:14px;color:var(--muted);line-height:1.3;margin-top:3px}
 .hint{font-size:15px;color:var(--muted);margin-top:4px}
 .mass{font-size:20px;font-weight:700;margin-top:10px}
+.mass .massname{font-size:16px;font-weight:600;color:var(--plum)}
 .spread{font-size:15px;font-weight:600;margin-left:10px}
 .spread.ok{color:var(--ok)} .spread.over{color:var(--warn)}
 .felder{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
@@ -86,6 +89,9 @@ details.imbild summary{font-size:15px;font-weight:600;padding:11px 0}
 input[type=text],textarea{width:100%;padding:11px;font-size:17px;border-radius:6px;
   border:1px solid var(--feld);background:var(--bg);color:var(--ink);font-family:inherit;min-height:48px}
 input[type=text]:focus,textarea:focus{outline:2px solid var(--plum)}
+/* unlesbare Eingabe (zählt nicht mit) */
+input[type=text].unlesbar{border-color:var(--bad);box-shadow:inset 0 0 0 1px var(--bad)}
+.lesbar{color:var(--bad);font-size:15px;font-weight:600;line-height:1.4;margin-top:6px}
 button{font:inherit;padding:11px 16px;border-radius:8px;cursor:pointer;
   border:1px solid var(--plum)}
 button:focus-visible,.pill:focus-visible{outline:2px solid var(--plum);outline-offset:2px}
@@ -147,6 +153,10 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border:1px 
   border-radius:8px;padding:12px;font:15px/1.5 ui-monospace,Consolas,monospace}
 details{margin:6px 0}
 summary{cursor:pointer;color:var(--plum);font-weight:600;padding:10px 0}
+/* Schritt 1 und 2, eingeklappt sobald Werte da sind */
+#vorbereitung{margin:14px 0 4px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+#vorbereitung > summary{font-size:17px;padding:12px 0;min-height:44px}
+#weiter button{margin:14px 0 4px}
 .marker{margin:9px 0}
 .marker b{color:var(--plum)}
 .row{display:flex;align-items:center;gap:10px;margin:10px 0;min-height:44px}
@@ -162,7 +172,7 @@ html[data-theme="dark"] .card img.seamly.d{display:block}
 /* Inhaltsverzeichnis */
 #menueschleier{position:fixed;inset:0;background:rgba(9,7,12,.55);z-index:39}
 #menue{position:fixed;top:0;left:0;bottom:0;width:min(88vw,370px);z-index:40;
-  background:var(--surface);color:var(--ink);overflow:auto;padding:12px 14px 30px;
+  background:var(--surface);color:var(--ink);overflow:auto;overscroll-behavior:contain;padding:12px 14px 30px;
   border-right:1px solid var(--line)}
 .menuekopf{display:flex;justify-content:space-between;align-items:center;font-size:19px;margin-bottom:6px;
   position:sticky;top:-12px;background:var(--surface);padding-top:12px;z-index:1}
@@ -171,6 +181,7 @@ button.menuezeile{display:flex;justify-content:space-between;gap:10px;width:100%
   padding:11px 4px;border:0;border-bottom:1px solid var(--line);border-radius:0;
   background:transparent;color:var(--ink)}
 .menuezeile .zahl{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+button.menuezeile.weiter{color:var(--plum);font-weight:700}
 .filterzeile{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
 /* Bild gross */
 #zoom{position:fixed;inset:0;background:rgba(9,7,12,.97);display:none;z-index:50}
@@ -199,7 +210,7 @@ button.menuezeile{display:flex;justify-content:space-between;gap:10px;width:100%
   .card{padding:12px}
   .bar{padding:7px 10px} .pills{padding:0 10px 7px}
 }
-@media print{header,#zoom,#menue,#menueschleier,#dialog,.pills,.mehr,button,.auffaellig,.sprungzeile{display:none}}
+@media print{header,#zoom,#menue,#menueschleier,#dialog,.pills,.mehr,button,.auffaellig,.sprungzeile,.massname,#weiter{display:none}}
 </style>
 </head>
 <body>
@@ -249,6 +260,7 @@ const WINKEL = "shoulder_slope_neck_side_angle";
 const WINKEL_EINGABEN = {x_height_shoulder_tip:1, b_shoulder_depth:1, b_shoulder_drop:1};
 const SPRICHT = ("speechSynthesis" in window) && (typeof SpeechSynthesisUtterance !== "undefined");
 let state = {}, vorlage = null, dunkel = true, notiz = "", filter = "alle", gesichert = null;
+let zuletzt = null, wachAn = false;      // zuletzt bearbeitetes Maß („Weiter bei …“), Bildschirm anlassen – beides nur im Browser-Speicher
 let speicherGeht = false, ungesichert = false, DATEI = {};
 const ARMLOCH = {}; (DATEN.armloch || []).forEach(function(i){ ARMLOCH[i] = true; });   // Karten für Oberkörper- und Ärmelblock
 function istBuch(x){ return x.group.indexOf("extra_") === 0; }
@@ -274,6 +286,8 @@ function auspacken(o){
   notiz = (typeof o.notiz === "string") ? o.notiz : "";
   filter = (typeof o.filter === "string") ? o.filter : "alle";
   gesichert = o.gesichert || null;
+  wachAn = o.wach === true;
+  zuletzt = (typeof o.zuletzt === "string" && BY[o.zuletzt]) ? o.zuletzt : null;
 }
 function laden(){
   speicherGeht = speicherTest();
@@ -290,7 +304,8 @@ function laden(){
   if(!({alle:1,datei:1,arm:1,offen:1,streu:1,neu:1})[filter]) filter = "alle";
 }
 function sichern(){
-  const s = JSON.stringify({state, vorlage, dunkel, notiz, filter, gesichert});
+  // wach und zuletzt gehören zu diesem Gerät, nicht in die Sicherungsdatei (sicherungText())
+  const s = JSON.stringify({state, vorlage, dunkel, notiz, filter, gesichert, wach: wachAn, zuletzt});
   if(speicherGeht){
     try{ localStorage.setItem(KEY, s); }
     catch(e){ speicherGeht = false; speicherHinweis(); }
@@ -393,12 +408,16 @@ function nameZu(k){
 }
 
 /* ── Rechnen ────────────────────────────────────────────── */
+// Nur eine Zahl in cm gilt, z. B. „37,5“, „37.5“, „37,5 cm“ – auch „37,“ mitten im Tippen. Alles andere
+// („39,,5“, „37 5“, „0“) ist unlesbar und zählt nicht mit; die Karte markiert das Feld (unlesbar()).
 function zahl(s){
   if(s == null) return NaN;
-  const t = String(s).trim().replace(",", ".").replace(/\s/g, "");
-  if(t === "") return NaN;
-  const v = Number(t); return isFinite(v) ? v : NaN;
+  const t = String(s).trim().replace(/\s*cm$/i, "");
+  if(!/^\d+(?:[.,]\d*)?$/.test(t)) return NaN;
+  const v = Number(t.replace(",", "."));
+  return isFinite(v) && v > 0 ? v : NaN;
 }
+function unlesbar(s){ return s != null && String(s).trim() !== "" && isNaN(zahl(s)); }
 let gelesen = null;   // während pruefungen(): die Maße, die die laufende Prüfung liest
 function werte(id){
   if(gelesen) gelesen[id] = true;
@@ -1389,6 +1408,10 @@ function kopfhoehe(){
 /* Überlagerungen (großes Bild, Inhalt, Textfenster). Die Zurück-Taste des
    Handys schließt sie, statt die Seite zu verlassen. */
 let overlayOffen = null;
+// Schließt ein Knopf die Überlagerung, geht die Seite selbst einen Schritt im Verlauf zurück. Das popstate
+// dazu stammt nicht von der Zurück-Taste (zurueckEigen = Nummer dieses Schritts); danach läuft nachZurueck,
+// z. B. der Sprung aus dem Menü – erst dann ist der Eintrag darunter wieder der aktuelle.
+let zurueckEigen = 0, zurueckNr = 0, nachZurueck = null;
 function verstecke(n){
   if(n === "zoom") document.getElementById("zoom").classList.remove("on");
   if(n === "dialog") document.getElementById("dialog").classList.remove("on");
@@ -1403,37 +1426,102 @@ function overlayAuf(name){
   overlayOffen = name;
   try{ history.pushState({messbuch:name}, ""); }catch(e){}
 }
-function overlayZu(vonZurueck){
-  if(!overlayOffen) return;
+function overlayZu(vonZurueck, danach){
+  if(!overlayOffen){ if(danach) danach(); return; }
   verstecke(overlayOffen); overlayOffen = null;
+  let zurueck = false;
   if(!vonZurueck){
-    try{ if(history.state && history.state.messbuch) history.back(); }catch(e){}
+    try{ zurueck = !!(history.state && history.state.messbuch); }catch(e){}
+    if(zurueck){
+      const nr = zurueckEigen = ++zurueckNr; nachZurueck = danach || null;
+      try{ history.back(); }catch(e){ zurueckEigen = 0; nachZurueck = null; zurueck = false; }
+      // kommt das popstate nicht, trotzdem weiter
+      if(zurueck) setTimeout(function(){ if(zurueckEigen === nr) zurueckFertig(true); }, 1000);
+    }
   }
+  if(!zurueck && danach) danach();
+}
+// nach popstate mit setTimeout: Der Browser stellt danach noch die Rollposition des Eintrags her
+function zurueckFertig(sofort){
+  zurueckEigen = 0;
+  const f = nachZurueck; nachZurueck = null;
+  if(f){ if(sofort) f(); else setTimeout(f, 0); }
 }
 /* Sprungziel festhalten: Die Bilder laden erst in der Nähe des Bildschirms (loading="lazy")
    und schieben dann alles darunter nach unten. Chrome gleicht das von selbst aus, Safari
    nicht – dort landete ein Sprung sonst weit über dem Ziel. Darum rollt halte() nach jeder
    Größenänderung der Seite noch einmal hin, bis jemand selbst scrollt oder tippt. */
-let halteZiel = null;
+let halteZiel = null, halteDy = null;     // halteDy: Abstand zum Kopf beim Zurück zu einem Anker, sonst null
 // Ebenso das Eingabefeld beim Tippen: kopfAktualisieren() gleicht Änderungen darüber sofort aus; lädt danach
 // noch ein Bild darüber nach (die Seite rückt dabei oft in dessen Ladebereich), rollt halte() das Feld an
 // dieselbe Stelle zurück – bis jemand selbst scrollt oder das Feld verlässt.
 let feldZiel = null, feldOben = 0;
 function halte(){
-  if(halteZiel && halteZiel.isConnected){ halteZiel.scrollIntoView(); return; }
+  if(halteZiel && halteZiel.isConnected){
+    if(halteDy === null) halteZiel.scrollIntoView();
+    else { const d = halteZiel.getBoundingClientRect().top - ankerLinie() - halteDy; if(Math.abs(d) > 1) window.scrollBy(0, d); }
+    return;
+  }
   halteZiel = null;
   if(feldZiel && feldZiel.isConnected && document.activeElement === feldZiel){
     const d = feldZiel.getBoundingClientRect().top - feldOben;
     if(Math.abs(d) > 1) window.scrollBy(0, d);
   } else feldZiel = null;
 }
-function springe(id){
+/* Zurück nach einem Sprung: Vor jedem Sprung merkt sich der Eintrag im Verlauf, was oben unter dem Kopf
+   stand (Karte, Prüfung oder Überschrift samt Abstand), und ein neuer Eintrag kommt dazu. Die Zurück-Taste
+   rollt dann wieder dorthin, statt die App zu verlassen. Gemerkt wird das Element, nicht die Rollposition:
+   Nachgeladene Bilder verschieben die Seite um Tausende Pixel. */
+// die Linie, an der Sprünge landen: 10 px unter dem Kopf, wie scroll-padding-top (kopfhoehe())
+function ankerLinie(){
+  const h = document.querySelector("header");
+  return (h ? h.getBoundingClientRect().bottom : 0) + 10;
+}
+// zu sehen: nicht vom Filter versteckt (Höhe 0) und nicht in einem eingeklappten <details> – Chrome legt
+// dessen Inhalt trotzdem mit echten Maßen an (nur per content-visibility verborgen), mitten über den Karten
+function zuSehen(e){ return !!e.getBoundingClientRect().height && !e.closest("details:not([open]) > :not(summary)"); }
+function ankerJetzt(){
+  const oben = ankerLinie();
+  const L = document.querySelectorAll("#main > [id], #vorbereitung > [id], #pruefbox > [id]");
+  let a = null;
+  for(let i = 0; i < L.length; i++){
+    if(L[i].id === "pruefbox" || L[i].id === "filterleer") continue;   // statt der Box die einzelne Prüfung
+    if(!zuSehen(L[i])) continue;                  // vom Filter versteckt oder eingeklappt
+    const r = L[i].getBoundingClientRect();
+    if(a && r.top > oben + 1) break;
+    a = {id: L[i].id, dy: Math.round(r.top - oben)};
+    if(r.top > oben + 1) break;                   // ganz oben auf der Seite: das erste Element
+  }
+  return a;
+}
+function sichtbar(id){ const e = document.getElementById(id); return !!(e && zuSehen(e)); }
+function zumAnker(a){
+  feldZiel = null; halteZiel = null;              // das vorige Sprungziel nicht mehr festhalten, auch wenn der Anker fehlt
+  const z = document.getElementById(a.id); if(!z) return;
+  if(!sichtbar(a.id)){                            // inzwischen eingeklappt oder vom Filter versteckt
+    const d = z.closest("#vorbereitung"); if(d) d.open = true;
+    if(!sichtbar(a.id) && filter !== "alle") alleZeigen();
+    if(!sichtbar(a.id)) return;
+  }
+  halteZiel = z; halteDy = a.dy;
+  halte(); setTimeout(halte, 150);
+}
+// anker: was vor dem Sprung oben stand – ohne Angabe jetzt ermittelt, aus dem Menü der Stand beim Öffnen;
+// false = kein Eintrag im Verlauf (kleine Korrektur innerhalb derselben Karte)
+let menueAnker = null;
+function springe(id, anker){
   const ziel = document.getElementById(id);
-  const los = function(){ if(ziel){ halteZiel = ziel; ziel.scrollIntoView(); } };
-  let wartet = false;
-  try{ wartet = !!(history.state && history.state.messbuch); }catch(e){}
-  overlayZu(false);
-  if(wartet) setTimeout(los, 150); else los();   // erst nach dem Zurück-Schritt rollen
+  let a = anker === false ? null : anker || (overlayOffen === "menue" && menueAnker) || ankerJetzt();
+  if(a && a.id === id && Math.abs(a.dy) <= 2) a = null;   // steht schon dort: kein leerer Schritt im Verlauf
+  const los = function(){
+    if(a){ try{ history.replaceState({anker:a}, ""); history.pushState({sprung:1}, ""); }catch(e){} }
+    if(!ziel) return;
+    const d = ziel.closest("#vorbereitung");      // eingeklappte Schritte 1 und 2 erst öffnen
+    if(d && !d.open) d.open = true;
+    halteZiel = ziel; halteDy = null; ziel.scrollIntoView();
+    setTimeout(halte, 150);     // falls der Browser danach noch die alte Lage des Eintrags herstellt
+  };
+  overlayZu(false, los);        // aus dem Menü: erst nach dem Zurück-Schritt, sonst landet der Sprung im Menü-Eintrag
 }
 
 /* Bild groß: erst eingepasst, Antippen schaltet auf volle Auflösung */
@@ -1505,15 +1593,58 @@ function vorlesen(x, b){
   speechSynthesis.speak(u);
 }
 
-/* Bildschirm anlassen (nur wenn der Browser es anbietet) */
-let wachSperre = null, wachAn = false;
-function wachSetzen(an){
-  wachAn = an;
+/* Bildschirm anlassen (nur wenn der Browser es anbietet). Die Einstellung bleibt gespeichert und gilt beim
+   nächsten Öffnen wieder. Lehnt der Browser ab, setzt nur ein Antippen den Schalter zurück (mit Hinweis);
+   beim Start oder nach dem Zurückkehren (z. B. Energiesparmodus) bleibt sie stehen, das nächste Antippen
+   irgendwo versucht es noch einmal. */
+const WACH = "wakeLock" in navigator;
+let wachSperre = null, wachNochmal = false, wachMeldung = "";
+function wachSetzen(an, vonHand){
+  wachAn = an; wachMeldung = "";
+  if(vonHand) sichern();
   try{
     if(an && navigator.wakeLock){
-      navigator.wakeLock.request("screen").then(function(s){ wachSperre = s; }, function(){ wachSperre = null; });
+      if(!wachSperre){                                 // hält er schon, nicht doppelt anfordern
+        navigator.wakeLock.request("screen").then(function(s){
+          // inzwischen ausgeschaltet oder schon gehalten: diese Sperre gleich wieder freigeben
+          if(!wachAn || wachSperre){ s.release(); return; }
+          wachSperre = s; wachNochmal = false;
+          // beim Wegschalten der Seite gibt der Browser sie frei, visibilitychange holt sie zurück
+          s.addEventListener("release", function(){ if(wachSperre === s) wachSperre = null; });
+        }, function(){
+          wachSperre = null;
+          if(vonHand && wachAn){
+            wachAn = false; sichern();
+            wachMeldung = "Dieser Browser lässt den Bildschirm nicht an. Verlängere stattdessen in den Handy-Einstellungen die Bildschirm-Zeitsperre.";
+            wachZeigen();
+          } else wachNochmal = wachAn;
+        });
+      }
     } else if(wachSperre){ wachSperre.release(); wachSperre = null; }
   }catch(e){ wachSperre = null; }
+  wachZeigen();
+}
+// alle Schalter (Menü, Schritt 1) und Hinweise auf den Stand bringen
+function wachZeigen(){
+  document.querySelectorAll("input.wach").forEach(function(c){ c.checked = wachAn; });
+  document.querySelectorAll(".wachmeldung").forEach(function(e){ e.textContent = wachMeldung; e.hidden = !wachMeldung; });
+}
+function wachSchalter(text){
+  const box = el("div");
+  const z = schalter(text, wachAn, function(an){ wachSetzen(an, true); });
+  z.querySelector("input").classList.add("wach");
+  box.appendChild(z);
+  const m = el("div","hint wachmeldung", wachMeldung); m.hidden = !wachMeldung;
+  box.appendChild(m);
+  return box;
+}
+// in Schritt 1: Schalter, oder ohne die Schnittstelle der Weg über die Handy-Einstellungen
+function wachBlock(){
+  const d = markerBlock("Bildschirm", WACH
+    ? "beim Messen anlassen, damit er nicht ausgeht, während beide Hände am Maßband sind. Die Einstellung bleibt gespeichert."
+    : "geht er beim Messen zu schnell aus, in den Handy-Einstellungen die Bildschirm-Zeitsperre verlängern.");
+  if(WACH) d.appendChild(wachSchalter("Bildschirm anlassen"));
+  return d;
 }
 
 /* So zeichnet und beschreibt SeamlyMe das Maß: Ausschnitt aus dem Maßdiagramm
@@ -1639,8 +1770,10 @@ function karte(x){
   c.appendChild(vh);
 
   const zeile = el("div","mass");
-  zeile.appendChild(el("span", null, ""));
-  zeile.firstChild.id = "mass_" + x.id;
+  // der Name direkt über den Feldern: Mit offener Tastatur ist oft nur diese Zeile zu sehen
+  zeile.appendChild(el("span","massname", x.name + ": "));
+  const mw = el("span", null, ""); mw.id = "mass_" + x.id;
+  zeile.appendChild(mw);
   const sp = el("span","spread"); sp.id = "spread_" + x.id;
   zeile.appendChild(sp);
   c.appendChild(zeile);
@@ -1660,13 +1793,18 @@ function karte(x){
       const rr = (state[x.id] || ["","",""]).slice();
       while(rr.length < 3) rr.push("");
       rr[i] = inp.value; state[x.id] = rr;
-      ungesichert = true;
+      ungesichert = true; zuletzt = x.id;
+      // Lage des Felds vor jeder Änderung merken: Schon die Zeile mit Name und Mittelwert darüber kann
+      // umbrechen; kopfAktualisieren() und halte() halten das Feld dann an dieser Stelle
+      if(feldZiel !== inp){ feldZiel = inp; feldOben = inp.getBoundingClientRect().top; }
       sichern(); werteAktualisieren(x.id); kopfAktualisieren();
     };
     inp.onkeydown = function(e){ if(e.key === "Enter"){ e.preventDefault(); naechstesFeld(inp); } };
     w.appendChild(l); w.appendChild(inp); felder.appendChild(w);
   });
   c.appendChild(felder);
+  const lw = el("div","lesbar"); lw.id = "lesbar_" + x.id; lw.hidden = true;   // unlesbare Eingaben, füllt werteInKarte()
+  c.appendChild(lw);
   // unter den Feldern, damit beim Nachmessen gleich zu sehen ist, ob der Konflikt weg ist (mit den Zahlen)
   const auff = el("div","auffaellig"); auff.id = "auff_" + x.id; auff.hidden = true;
   c.appendChild(auff);
@@ -1691,11 +1829,28 @@ function werteInKarte(id){
     else { se.textContent = "Spanne " + f1(sp) + " cm";      // wie die Regel „mehr als 0,5 cm“ und die Prüfung
            se.className = "spread " + (sp > grenze(x) ? "over" : "ok"); }
   }
+  // unlesbare Felder rot umranden und darunter sagen, dass sie nicht mitzählen
+  const r = state[id] || [], schlecht = [];
+  [0,1,2].forEach(function(i){
+    const f = document.getElementById(id + "_" + i); if(!f) return;
+    const u = unlesbar(r[i]);
+    if(u) schlecht.push(i+1);
+    f.classList.toggle("unlesbar", u);
+    if(u){ f.setAttribute("aria-invalid","true"); f.setAttribute("aria-describedby","lesbar_" + id); }
+    else { f.removeAttribute("aria-invalid"); f.removeAttribute("aria-describedby"); }
+  });
+  const le = document.getElementById("lesbar_" + id);
+  if(le){
+    le.hidden = !schlecht.length;
+    le.textContent = !schlecht.length ? "" : "Messung " +
+      (schlecht.length > 1 ? schlecht.slice(0,-1).join(", ") + " und " + schlecht[schlecht.length-1] : schlecht[0]) +
+      " nicht lesbar – " + (schlecht.length > 1 ? "zählen" : "zählt") + " nicht mit; nur Zahl in cm, z. B. 37,5";
+  }
 }
 function werteAktualisieren(id){ werteInKarte(id); }
 
 /* Kopfzeile, Filter, Inhalt */
-const FILTERNAME = {alle:"Alle Maße", datei:"Nur Maßdatei", arm:"Nur Armloch und Ärmel", offen:"Nur offene", neu:"Nur neu zu messen", streu:"Nur zu große Streuung"};
+const FILTERNAME = {alle:"Alle Maße", datei:"Nur Maßdatei", arm:"Nur Armloch und Ärmel", offen:"Nur ohne Wert", neu:"Nur neu zu messen", streu:"Nur zu große Streuung"};
 function passtFilter(x, neu){
   if(filter === "datei") return inDatei(x);
   if(filter === "arm") return !!ARMLOCH[x.id];
@@ -1742,6 +1897,7 @@ function pillsZeichnen(c){
     pills.appendChild(knopf("pill neu", neu.length + " neu messen", function(){
       const karten = neu.map(function(id){ return document.getElementById("karte_" + id); }).filter(Boolean);
       if(!karten.length) return;
+      const a = ankerJetzt();             // vor alleZeigen(), das verschiebt die Seite
       if(karten.some(function(k){ return k.hidden; })) alleZeigen();
       // die nächste Karte nach der zuletzt angesprungenen – nach der Lage im Dokument, denn die ist
       // nach einer Korrektur oft nicht mehr in der Liste (oder vom Filter versteckt)
@@ -1749,18 +1905,37 @@ function pillsZeichnen(c){
       karten.sort(function(a,b){ return danach(a,b) ? -1 : 1; });
       const ref = neuLetzt && document.getElementById(neuLetzt);
       const z = (ref && karten.find(function(k){ return danach(ref, k); })) || karten[0];
-      neuLetzt = z.id; springe(z.id); }));
+      neuLetzt = z.id; springe(z.id, a); }));
   }
-  [["ok", c.OK, "passen"],["warn", c.WARN, "prüfen"],
-   ["bad", c.BAD, c.BAD === 1 ? "Konflikt" : "Konflikte"],["open", c.OPEN, "offen"]]
+  // wie die Prüfliste sortiert: Konflikte zuerst, „passen“ zuletzt (bei 390 px Breite außer Sicht)
+  [["bad", c.BAD, c.BAD === 1 ? "Konflikt" : "Konflikte"],["warn", c.WARN, "prüfen"],
+   ["open", c.OPEN, "offen"],["ok", c.OK, "passen"]]
    .forEach(function(p){
      pills.appendChild(knopf("pill " + p[0], p[1] + " " + p[2], function(){
        // zur ersten Prüfung mit diesem Ergebnis – die Liste ist danach sortiert
        const erste = document.querySelector("#pruefbox .check." + p[0]);
        springe(erste ? erste.id : "pruefungen"); }));
    });
+  pillsRand();
+}
+// rechts ausblenden, solange weitere Pillen außer Sicht sind
+function pillsRand(){
+  const p = document.getElementById("pills");
+  p.classList.toggle("ueberlauf", p.scrollLeft + p.clientWidth < p.scrollWidth - 2);
 }
 let neuLetzt = null;                    // Id der zuletzt angesprungenen Karte der Reihe „neu messen“
+// „Weiter bei …“: das zuletzt bearbeitete Maß, sobald es Werte gibt
+function weiterZiel(){
+  return zuletzt && BY[zuletzt] && M.some(function(x){ return hat(x.id); }) ? zuletzt : null;
+}
+function weiterZeigen(){
+  const box = document.getElementById("weiter"); if(!box) return;
+  const w = weiterZiel();
+  box.hidden = !w;
+  if(box.dataset.id === (w || "")) return;
+  box.dataset.id = w || ""; box.innerHTML = "";
+  if(w) box.appendChild(knopf("primary breit", "Weiter bei: " + BY[w].name, function(){ zeigeMass(w); }));
+}
 function alleZeigen(){
   filter = "alle"; sichern(); filterAnwenden(); pillsZeichnen(zaehlung()); kopfhoehe();
 }
@@ -1774,6 +1949,7 @@ function kopfAktualisieren(){
   pillsZeichnen(zaehlung());
   gruppenZaehler();
   kragenHinweis();
+  weiterZeigen();
   pruefungenZeichnen();
   markierungenZeichnen();
   ergebnisTauschen();
@@ -1805,12 +1981,17 @@ function menueZeichnen(){
   kopf.appendChild(el("strong", null, "Inhalt"));
   kopf.appendChild(knopf("plain","Schließen", function(){ overlayZu(false); }));
   m.appendChild(kopf);
-  const eintrag = function(text, id, rechts){
-    const b = knopf("menuezeile", null, function(){ springe(id); });
+  const eintrag = function(text, id, rechts, cls){
+    const b = knopf("menuezeile" + (cls ? " " + cls : ""), null, function(){
+      const z = document.getElementById(id);
+      if(z && z.hidden) alleZeigen();             // der Filter versteckt die Gruppe oder Karte gerade
+      springe(id); });
     b.appendChild(el("span", null, text));
     if(rechts) b.appendChild(el("span","zahl", rechts));
     m.appendChild(b);
   };
+  const w = weiterZiel();
+  if(w) eintrag("Weiter bei: " + BY[w].name, "karte_" + w, "", "weiter");
   eintrag("Schritt 1 – Vorbereitung", "schritt1");
   eintrag("Schritt 2 – Punkte markieren", "schritt2");
   DATEN.groups.forEach(function(g){
@@ -1827,7 +2008,8 @@ function menueZeichnen(){
   const fz = el("div","filterzeile");
   Object.keys(FILTERNAME).forEach(function(k){
     const b = knopf("pill" + (filter === k ? " aktiv" : ""), FILTERNAME[k], function(){
-      filter = k; sichern(); filterAnwenden(); pillsZeichnen(zaehlung()); kopfhoehe(); menueZeichnen(); });
+      filter = k; sichern(); filterAnwenden(); pillsZeichnen(zaehlung()); kopfhoehe(); menueZeichnen();
+      if(!menueAnker || !sichtbar(menueAnker.id)) menueAnker = ankerJetzt(); });
     b.setAttribute("aria-pressed", filter === k ? "true" : "false");
     fz.appendChild(b);
   });
@@ -1836,9 +2018,10 @@ function menueZeichnen(){
 
   m.appendChild(el("h3", null, "Einstellungen"));
   m.appendChild(schalter("Dunkler Modus", dunkel, themaSetzen));
-  if("wakeLock" in navigator) m.appendChild(schalter("Bildschirm anlassen", wachAn, wachSetzen));
+  if(WACH) m.appendChild(wachSchalter("Bildschirm anlassen"));
 }
 function menueAuf(){
+  menueAnker = ankerJetzt();                      // dorthin führt „Zurück“ nach einem Sprung aus dem Menü
   menueZeichnen();
   document.getElementById("menue").hidden = false;
   document.getElementById("menueschleier").hidden = false;
@@ -1910,9 +2093,9 @@ function massKnoepfe(ids, text, F){
   return z;
 }
 function zeigeMass(id){
-  const c = document.getElementById("karte_" + id);
+  const c = document.getElementById("karte_" + id), a = ankerJetzt();   // vor alleZeigen(), das verschiebt die Seite
   if(c && c.hidden) alleZeigen();                 // der Filter versteckt die Karte gerade
-  springe("karte_" + id);
+  springe("karte_" + id, a);
 }
 /* ── Was muss neu gemessen werden? ─────────────────────────
    Bestätigt ist ein Maß, wenn eine bestandene Gleichungsprüfung für es spricht: zwei unabhängige
@@ -1992,7 +2175,7 @@ function leeren(x){
   const vh = document.getElementById("vorher_" + x.id);
   if(vh){ vh.textContent = "vorher: " + geleert[x.id] + " cm"; vh.hidden = false; }
   werteAktualisieren(x.id); kopfAktualisieren();
-  springe("vorher_" + x.id);
+  springe("vorher_" + x.id, false);
   const f0 = document.getElementById(x.id + "_0");
   if(f0) f0.focus({preventScroll:true});
 }
@@ -2200,20 +2383,34 @@ function zeichne(){
   main.appendChild(el("h1", null, T.heroTitle));
   main.appendChild(el("p", null, T.heroSub));
   main.appendChild(el("p","hint", T.heroMuted));
+  const wz = el("div"); wz.id = "weiter"; wz.hidden = true;     // „Weiter bei …“, füllt weiterZeigen()
+  main.appendChild(wz);
 
+  // Schritt 1 und 2 eingeklappt, sobald Werte da sind; Sprünge dorthin öffnen sie (springe())
+  let vb = main;
+  if(M.some(function(x){ return hat(x.id); })){
+    vb = el("details"); vb.id = "vorbereitung";
+    const zu = "Schritt 1 und 2: Vorbereitung und Punkte markieren – zum Nachmessen wieder öffnen";
+    const su = el("summary", null, zu);
+    vb.ontoggle = function(){ su.textContent = vb.open ? "Schritt 1 und 2 einklappen" : zu; };
+    vb.appendChild(su);
+    main.appendChild(vb);
+    if(WACH) main.appendChild(wachSchalter("Bildschirm beim Messen anlassen"));
+  }
   const s1 = el("h2", null, "Schritt 1 – Vorbereitung"); s1.id = "schritt1";
-  main.appendChild(s1);
+  vb.appendChild(s1);
   T.prepRules.forEach(function(p){
-    main.appendChild(markerBlock(p[0], p[1]));
-    bilderZu(T.prepImages, p[0], main);
+    vb.appendChild(markerBlock(p[0], p[1]));
+    bilderZu(T.prepImages, p[0], vb);
   });
+  vb.appendChild(wachBlock());
 
   const s2 = el("h2", null, "Schritt 2 – Punkte markieren"); s2.id = "schritt2";
-  main.appendChild(s2);
-  main.appendChild(el("p", null, T.markIntro));
+  vb.appendChild(s2);
+  vb.appendChild(el("p", null, T.markIntro));
   T.marks.forEach(function(p){
-    main.appendChild(markerBlock(p[0], p[1]));
-    bilderZu(T.markImages, p[0], main);
+    vb.appendChild(markerBlock(p[0], p[1]));
+    bilderZu(T.markImages, p[0], vb);
   });
 
   const leer = el("p","hint","Kein Maß passt zu diesem Filter. Oben auf den dunklen Knopf tippen, um wieder alle Maße zu sehen.");
@@ -2245,6 +2442,7 @@ function zeichne(){
   kragenHinweis();
   filterAnwenden();
   speicherHinweis();
+  weiterZeigen();
 }
 
 /* ── Start ─────────────────────────────────────────────── */
@@ -2259,8 +2457,15 @@ document.getElementById("zoomgroesse").onclick = zoomUmschalten;
 document.getElementById("zoomzu").onclick = function(){ overlayZu(false); };
 document.getElementById("dlgzu").onclick = function(){ overlayZu(false); };
 document.getElementById("warnsichern").onclick = sicherungSpeichern;
-window.addEventListener("popstate", function(){ overlayZu(true); });
-window.addEventListener("resize", kopfhoehe);
+window.addEventListener("popstate", function(e){
+  if(zurueckEigen){ zurueckFertig(); return; }  // eigener Schritt beim Schließen, danach z. B. der Sprung
+  if(overlayOffen){ overlayZu(true); return; }
+  const a = e.state && e.state.anker;           // Zurück nach einem Sprung
+  if(a) setTimeout(function(){ zumAnker(a); }, 0);
+});
+try{ if(history.state && history.state.messbuch) history.replaceState(null, ""); }catch(e){}   // neu geladen bei offener Überlagerung
+window.addEventListener("resize", function(){ kopfhoehe(); pillsRand(); });
+document.getElementById("pills").addEventListener("scroll", pillsRand, {passive:true});
 if("ResizeObserver" in window) new ResizeObserver(halte).observe(document.getElementById("main"));
 ["touchstart","wheel","keydown","mousedown"].forEach(function(t){      // wer selbst scrollt, wird nicht festgehalten
   window.addEventListener(t, function(){ halteZiel = null; if(t !== "keydown") feldZiel = null; }, {passive:true});
@@ -2271,6 +2476,9 @@ document.addEventListener("keydown", function(e){
 document.addEventListener("visibilitychange", function(){
   if(wachAn && document.visibilityState === "visible") wachSetzen(true);
 });
+document.addEventListener("click", function(){        // nach einer Ablehnung beim Start: beim nächsten Antippen noch einmal
+  if(wachNochmal){ wachNochmal = false; if(wachAn) wachSetzen(true); }
+}, true);
 window.addEventListener("beforeunload", function(e){
   if(!speicherGeht && ungesichert){ e.preventDefault(); e.returnValue = ""; }
 });
@@ -2293,6 +2501,7 @@ document.getElementById("sicherungsdatei").onchange = function(ev){
   ev.target.value = "";
 };
 zeichne();
+if(wachAn && WACH && document.visibilityState === "visible") wachSetzen(true);
 </script>
 </body>
 </html>

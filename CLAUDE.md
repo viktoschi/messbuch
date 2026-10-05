@@ -65,13 +65,34 @@ When touching a check in `pruefungen()`, compare its results (title/kind/status/
 
 ## App architecture (script block)
 
-- **State & storage**: global `state` = `{measureId: [m1, m2, m3]}` (strings, comma decimals allowed via `zahl()`).
-  Persisted to `localStorage` under `messbuch_html_v1` — do not rename, existing users' data lives there. If storage
-  is unavailable (some browsers for `file://`), falls back to `window.name` (prefix `MESSBUCH1:`) and shows a warning
-  banner. Manual backup/restore is a JSON file `{app:"Messbuch", format:2, …}`; keep it backward compatible.
+- **State & storage**: global `state` = `{measureId: [m1, m2, m3]}` (strings as typed). `zahl()` is strict: only a
+  positive number with `,` or `.` decimals and an optional `cm` suffix counts (`37,` while typing too); anything else
+  (`39,,5`, `37 5`, `0`) is NaN, so `unlesbar()` is true and `werteInKarte()` marks the field (class `unlesbar`,
+  `aria-invalid`, text in `lesbar_<id>`: "nicht lesbar – zählt nicht mit"). Keep this reading rule in sync with the
+  Android version. Persisted to `localStorage` under `messbuch_html_v1` — do not rename, existing users' data lives
+  there. If storage is unavailable (some browsers for `file://`), falls back to `window.name` (prefix `MESSBUCH1:`)
+  and shows a warning banner. Manual backup/restore is a JSON file `{app:"Messbuch", format:2, …}`; keep it backward
+  compatible. `wach` (keep screen on) and `zuletzt` (last edited measure, for "Weiter bei …") belong to the device:
+  they are stored by `sichern()` only and must not go into `sicherungText()`.
 - **Rendering**: no framework. `zeichne()` rebuilds `#main` completely from DATEN + state; helpers `el()`, `knopf()`,
-  `karte()` (one measure card). Small updates go through `werteInKarte()`, `pillsZeichnen()`, `menueZeichnen()`.
-  Overlays (menu, image zoom, dialog) use `overlayAuf()`/`overlayZu()` with history entries so Android "back" closes them.
+  `karte()` (one measure card; the line above the inputs starts with the measure name, `massname`, since with the
+  keyboard open often only that line is visible). Small updates go through `werteInKarte()`, `pillsZeichnen()`,
+  `menueZeichnen()`, `weiterZeigen()`. As soon as any value exists, Schritt 1 and 2 (`schritt1`/`schritt2` and their
+  blocks) sit in a collapsed `details#vorbereitung`; `springe()` and `zumAnker()` open it, so anything inside must be
+  reached through them. Above it, `#weiter` ("Weiter bei: …", also the first menu entry) jumps to `zuletzt` via
+  `zeigeMass()`. Header pills follow the check list (neu messen, Konflikte, prüfen, offen, passen); `pillsRand()`
+  toggles the fade mask `.pills.ueberlauf` while pills are out of sight — it must not change the header height
+  (`kopfhoehe()` sets `scroll-padding-top` only on resize, filter changes and redraws), and `.mehr` is the image row.
+  The filter key `offen` is labelled "Nur ohne Wert" (keys stay: the filter is stored).
+- **Overlays & history**: menu, image zoom and dialog use `overlayAuf()`/`overlayZu()` with history entries so
+  Android "back" closes them. Closed by a button, `overlayZu(false, danach)` goes back one step itself; the popstate
+  of that step is marked by `zurueckEigen` (not the back key), and `danach` (e.g. the jump from the menu) runs only
+  after it via `zurueckFertig()` (fallback after 1000 ms) — scrolling before it lands in the overlay's entry. Never
+  call `history.back()` and scroll right away.
+- **Screen on**: `wachSetzen(an, vonHand)` requests the wake lock (Schritt 1 and menu; `wachZeigen()` syncs all
+  `input.wach` switches). The setting persists and is re-requested at start and on `visibilitychange`. A refusal
+  after a tap resets the switch and shows `wachMeldung` (screen timeout hint); a refusal at start keeps the setting
+  and retries on the next click (`wachNochmal`). Without `navigator.wakeLock` Schritt 1 shows only the hint.
 - **Cross-checks**: `pruefungen()` is a long list of self-contained checks, each calling
   `add(title, kind, status, text[, ids[, gut]])` **exactly once** with status `OK | WARN | BAD | OPEN`. Use `mittel()`,
   `voll()`, `nm()`/`namen()`, `f1()`; emit `OPEN` (with what's needed) when inputs are missing. The result list is
@@ -123,6 +144,17 @@ When touching a check in `pruefungen()`, compare its results (title/kind/status/
   on `#main`) re-aligns the target until the user touches, scrolls or types. `kopfAktualisieren()` likewise keeps the
   focused input in place when markings above it change, and remembers it (`feldZiel`/`feldOben`) so that `halte()`
   also puts it back when an image above loads afterwards — until the user touches or scrolls or leaves the field.
+  All measures of a flagged check are tinted, not only the "Neu messen" suspects (decided by the user; keep it).
+- **Back after a jump**: `springe(id, anker)` replaces the current history entry with `{anker:{id, dy}}` — the element
+  at the top under the header (`ankerJetzt()`: card, check, heading, plus its offset to `ankerLinie()`) — and pushes
+  a new entry; the back key (popstate with `anker`) returns there via `zumAnker()` (`halteDy` keeps the offset while
+  images load). It stores the element, not the scroll position, since lazy images move the page by thousands of
+  pixels. Take the anchor before anything that shifts the page, i.e. before `alleZeigen()` (see `zeigeMass()` and the
+  "neu messen" pill); from the menu `menueAnker` (state when it was opened) is used. `springe(id, false)` adds no
+  history entry (small correction inside the same card, e.g. `leeren()`). Menu entries lift a filter that hides
+  their target. Test visibility with `zuSehen()`/`sichtbar()`, not with the height alone: Chrome lays out the content
+  of a closed `<details>` with real sizes (hidden only via content-visibility), at positions over the cards.
+  `zumAnker()` first drops the previous jump target, even when the anchor is gone.
 - **Shoulder slope**: `winkel()` derives `shoulder_slope_neck_side_angle` from depth/drop, falling back to heights;
   exported rounded to 0.5°.
 - **`.smis` export**: `baueSmis()` either fills `defaults` into `templateHead`, or — if the user imported their own
