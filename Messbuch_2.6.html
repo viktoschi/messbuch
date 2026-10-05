@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="de" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#F2C12E">
+<meta name="theme-color" content="#D4A82A">
 <meta name="format-detection" content="telephone=no">
 <title>Messbuch</title>
+<script>/* vor dem ersten Bild: dunkel ist Vorgabe, hell nur, wenn so gespeichert – sonst blitzt beim Start die falsche Farbe auf */try{var o=null;try{o=JSON.parse(localStorage.getItem("messbuch_html_v1")||"null")}catch(e){}if(!o&&typeof window.name==="string"&&window.name.indexOf("MESSBUCH1:")===0)o=JSON.parse(window.name.slice(10));if(o&&o.dunkel===false){document.documentElement.setAttribute("data-theme","light");document.querySelector('meta[name="theme-color"]').content="#F2C12E"}}catch(e){}</script>
 <style>
 :root{
   --bg:#F3F2F6; --surface:#fff; --ink:#1D1A24; --muted:#6B6577;
@@ -47,6 +48,10 @@ header{position:sticky;top:0;z-index:5;background:var(--tape);color:#3A2A06;
   display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .warnung span{flex:1;min-width:200px}
 .warnung button{background:#fff;color:#7A1C16;border:0;padding:12px 14px;font-weight:700}
+.warnung.sanft{background:var(--plum);color:var(--onPlum)}
+.warnung.sanft button{background:var(--onPlum);color:var(--plum)}
+#meldung{position:fixed;left:16px;right:16px;bottom:16px;z-index:55;max-width:640px;margin:0 auto;padding:10px 14px;
+  border-radius:10px;background:var(--plum);color:var(--onPlum);font-size:15px;box-shadow:0 2px 10px rgba(0,0,0,.3)}
 main{max-width:900px;margin:0 auto;padding:14px 14px 70px}
 h1{font-size:27px;margin:6px 0 10px;color:var(--plum)}
 h2{font-size:21px;margin:26px 0 6px;color:var(--plum)}
@@ -222,17 +227,23 @@ button.menuezeile.weiter{color:var(--plum);font-weight:700}
   <div class="bar">
     <button type="button" class="menueknopf" id="menueknopf" aria-expanded="false" aria-controls="menue">☰ Inhalt</button>
     <span class="ticks"></span>
-    <span class="count" id="count">0 / 44</span>
+    <span class="count" id="count">…</span>
   </div>
   <div class="pills" id="pills"></div>
   <div class="warnung" id="speicherwarnung" hidden>
     <span>Dieser Browser speichert deine Eingaben nicht dauerhaft. Speichere nach jeder Etappe eine Sicherung, sonst sind sie nach dem Schließen weg.</span>
     <button type="button" id="warnsichern">Sicherung speichern</button>
   </div>
+  <div class="warnung sanft" id="sicherungsmahnung" hidden>
+    <span id="mahntext"></span>
+    <button type="button" id="mahnsichern">Sicherung speichern</button>
+    <button type="button" id="mahnzu">Später</button>
+  </div>
 </header>
 <div id="menueschleier" hidden></div>
 <nav id="menue" aria-label="Inhalt" hidden></nav>
-<main id="main"></main>
+<main id="main"><p class="hint">Messbuch lädt …</p></main>
+<div id="meldung" role="status" hidden></div>
 <div id="zoom" role="dialog" aria-label="Hilfebild groß">
   <div id="zoomkopf"><span id="zoomtext"></span>
     <button type="button" id="zoomgroesse">Volle Größe</button>
@@ -266,6 +277,9 @@ const SPRICHT = ("speechSynthesis" in window) && (typeof SpeechSynthesisUtteranc
 let state = {}, vorlage = null, dunkel = true, notiz = "", filter = "alle", gesichert = null;
 let zuletzt = null, wachAn = false;      // zuletzt bearbeitetes Maß („Weiter bei …“), Bildschirm anlassen – beides nur im Browser-Speicher
 let speicherGeht = false, ungesichert = false, DATEI = {};
+let seitSicherung = {}, geaendertSeit = 0;   // seit der letzten Sicherung geändert (Maß-Ids, notiz, vorlage, alles) und seit wann
+let gespeichert = null, uebernimmt = false;  // eigener letzter Speicherstand: erkennt, dass ein anderer Tab gespeichert hat
+let nachExport = false;                       // nach dem Export die Sicherung anbieten
 const ARMLOCH = {}; (DATEN.armloch || []).forEach(function(i){ ARMLOCH[i] = true; });   // Karten für Oberkörper- und Ärmelblock
 function istBuch(x){ return x.group.indexOf("extra_") === 0; }
 
@@ -283,8 +297,25 @@ function speicherTest(){
     return ok;
   }catch(e){ return false; }
 }
+// Ein Maß im Speicher oder in einer Sicherung: immer drei Texte. Ein einzelner Wert wird Messung 1, alles andere leer –
+// ein falsch abgelegter Wert soll die App nicht lahmlegen.
+function eintrag(v){
+  if(Array.isArray(v)){
+    const r = v.slice(0,3).map(function(x){ return x == null ? "" : String(x); });
+    while(r.length < 3) r.push("");
+    return r;
+  }
+  if(typeof v === "string" || typeof v === "number") return [String(v), "", ""];
+  return ["","",""];
+}
+function gemessen(st){
+  return Object.keys(st).filter(function(k){
+    return BY[k] && eintrag(st[k]).some(function(v){ return v.trim() !== ""; });
+  }).length;
+}
 function auspacken(o){
-  state = (o.state && typeof o.state === "object") ? o.state : {};
+  state = {};
+  if(o.state && typeof o.state === "object") Object.keys(o.state).forEach(function(k){ state[k] = eintrag(o.state[k]); });
   vorlage = (typeof o.vorlage === "string") ? o.vorlage : null;
   dunkel = o.dunkel !== false;
   notiz = (typeof o.notiz === "string") ? o.notiz : "";
@@ -292,26 +323,39 @@ function auspacken(o){
   gesichert = o.gesichert || null;
   wachAn = o.wach === true;
   zuletzt = (typeof o.zuletzt === "string" && BY[o.zuletzt]) ? o.zuletzt : null;
+  ungesichert = o.ungesichert === true;
+  seitSicherung = (o.seit && typeof o.seit === "object") ? o.seit : {};
+  geaendertSeit = typeof o.seitZeit === "number" ? o.seitZeit : 0;
 }
 function laden(){
   speicherGeht = speicherTest();
-  let o = null;
-  if(speicherGeht){ try{ o = JSON.parse(localStorage.getItem(KEY) || "null"); }catch(e){ o = null; } }
-  if(!o){
-    try{
-      if(typeof window.name === "string" && window.name.indexOf(NAMETAG) === 0)
-        o = JSON.parse(window.name.slice(NAMETAG.length));
-    }catch(e){ o = null; }
-  }
-  try{ auspacken(o || {}); }catch(e){ state = {}; vorlage = null; }
-  Object.keys(state).forEach(k => { if(!BY[k]) delete state[k]; });
+  let o = null, n = null;
+  gespeichert = null;
+  if(speicherGeht){ try{ gespeichert = localStorage.getItem(KEY); o = JSON.parse(gespeichert || "null"); }catch(e){ o = null; } }
+  try{
+    if(typeof window.name === "string" && window.name.indexOf(NAMETAG) === 0)
+      n = JSON.parse(window.name.slice(NAMETAG.length));
+  }catch(e){ n = null; }
+  if(!o || typeof o !== "object") o = null;
+  if(!n || typeof n !== "object") n = null;
+  // Der Notanker gilt, wenn er neuer ist: Der Browser-Speicher war zwischendurch voll oder gesperrt
+  const ausName = !!n && (!o || (n.zeit || 0) > (o.zeit || 0));
+  try{ auspacken((ausName ? n : o) || {}); }catch(e){ state = {}; vorlage = null; }
+  // Maße, die diese Fassung nicht kennt (aus einer neueren), bleiben im Speicher und in der Sicherung
   if(!({alle:1,datei:1,arm:1,offen:1,streu:1,neu:1})[filter]) filter = "alle";
+  if(ausName && speicherGeht) sichern();
+}
+// Der Stand im Browser-Speicher. wach, zuletzt und was seit der letzten Sicherung geändert ist gehören zu diesem
+// Gerät, nicht in die Sicherungsdatei (sicherungText()); zeit sagt, ob der Notanker neuer ist.
+function standText(){
+  return JSON.stringify({state, vorlage, dunkel, notiz, filter, gesichert, wach: wachAn, zuletzt,
+    ungesichert, seit: seitSicherung, seitZeit: geaendertSeit, zeit: Date.now()});
 }
 function sichern(){
-  // wach und zuletzt gehören zu diesem Gerät, nicht in die Sicherungsdatei (sicherungText())
-  const s = JSON.stringify({state, vorlage, dunkel, notiz, filter, gesichert, wach: wachAn, zuletzt});
+  if(uebernimmt) return;                 // gerade aus dem Speicher übernommen: nichts zurückschreiben
+  const s = standText();
   if(speicherGeht){
-    try{ localStorage.setItem(KEY, s); }
+    try{ localStorage.setItem(KEY, s); gespeichert = s; }
     catch(e){ speicherGeht = false; speicherHinweis(); }
   }
   try{
@@ -334,9 +378,7 @@ function sicherungLaden(txt){
     alert("Das ist keine Messbuch-Sicherung. Erwartet wird die Datei messbuch_sicherung_….json oder ihr Text.");
     return false;
   }
-  const n = Object.keys(o.state).filter(function(k){
-    return BY[k] && (o.state[k] || []).some(function(v){ return String(v == null ? "" : v).trim() !== ""; });
-  }).length;
+  const n = gemessen(o.state), jetzt = gemessen(state);
   // Die Vorlage wird nur ersetzt, wenn die Sicherung eine brauchbare mitbringt – sonst bleibt die importierte
   const neueV = typeof o.vorlage === "string" ? o.vorlage : null;
   const grund = neueV === null ? "" : vorlageFehler(neueV);
@@ -345,15 +387,63 @@ function sicherungLaden(txt){
     : neueV === vorlage ? ""
     : vorlage ? " Die importierte Vorlage wird durch die aus der Sicherung ersetzt."
     : " Die Vorlage aus der Sicherung wird übernommen.";
-  if(!confirm("Sicherung vom " + (o.datum || "unbekannten Datum") + " mit " + n +
-      " gemessenen Maßen laden? Die jetzigen Eingaben werden ersetzt." + zurV)) return false;
-  state = {};
-  Object.keys(o.state).forEach(function(k){ if(BY[k]) state[k] = o.state[k]; });
+  const datum = typeof o.datum === "string" ? o.datum : null;
+  if(!confirm("Sicherung vom " + (datum || "unbekannten Datum") + " mit " + n + " gemessenen Maßen laden? " +
+      (jetzt ? "Die jetzigen Eingaben (" + jetzt + " Maße gemessen) werden ersetzt – „Rückgängig“ unter Sicherung holt sie zurück."
+        : "Die jetzigen Eingaben werden ersetzt.") +
+      (datum && gesichert && datum < gesichert ? " Achtung: Sie ist älter als deine letzte Sicherung vom " + gesichert + "." : "") +
+      zurV)) return false;
+  merkeVorher("Sicherung laden");
+  state = {};                            // alle Ids, auch solche einer neueren Fassung
+  Object.keys(o.state).forEach(function(k){ state[k] = eintrag(o.state[k]); });
   if(neueV !== null && !grund) vorlage = neueV;
   if(typeof o.notiz === "string") notiz = o.notiz;
-  ungesichert = false;
+  gesichertStand(datum);
   sichern(); zeichne();
   return true;
+}
+/* Was seit der letzten Sicherung geändert ist – nur als ruhiger Hinweis: im Ergebnis, einmal beim Start (nach
+   einem Tag) und nach dem Export, nie in der Kopfzeile beim Tippen. */
+function geaendert(was){
+  ungesichert = true; seitSicherung[was] = 1;
+  if(!geaendertSeit) geaendertSeit = Date.now();
+}
+function gesichertStand(datum){
+  gesichert = datum; ungesichert = false; seitSicherung = {}; geaendertSeit = 0; nachExport = false;
+  const m = document.getElementById("sicherungsmahnung");
+  if(m && !m.hidden){ m.hidden = true; kopfhoehe(); }
+}
+function geaenderteMasse(){ return Object.keys(seitSicherung).filter(function(k){ return BY[k]; }).length; }
+function seitText(){
+  if(!ungesichert || !gesichert) return "";
+  const n = geaenderteMasse(), teile = [];
+  if(seitSicherung.alles) teile.push("gelöscht oder zurückgesetzt");
+  if(n) teile.push(n + (n === 1 ? " Maß" : " Maße") + " geändert");
+  const sonst = [seitSicherung.notiz && "Notiz", seitSicherung.vorlage && "Vorlage"].filter(Boolean);
+  if(sonst.length) teile.push(sonst.join(" und ") + " geändert");
+  return teile.length ? " Seitdem " + teile.join(", ") + "." : "";
+}
+/* Rückgängig für „Sicherung laden“, „Messungen löschen“ und „Alles zurücksetzen“: der ganze Stand davor,
+   auch im Browser-Speicher (übersteht das Neuladen). Wiederherstellen merkt sich den jetzigen Stand ebenso. */
+let vorher = null;
+function merkeVorher(art){
+  vorher = {art: art, zeit: jetztText(), n: gemessen(state), stand: standText()};
+  try{ localStorage.setItem(KEY + "_vorher", JSON.stringify(vorher)); }catch(e){}
+}
+function vorherLesen(){
+  if(!vorher){ try{ vorher = JSON.parse(localStorage.getItem(KEY + "_vorher") || "null"); }catch(e){ vorher = null; } }
+  return vorher && typeof vorher.stand === "string" ? vorher : null;
+}
+function rueckgaengig(){
+  const v = vorherLesen();
+  let o = null;
+  try{ o = v ? JSON.parse(v.stand) : null; }catch(e){ o = null; }
+  if(!o || typeof o !== "object") return;
+  if(!confirm("Stand vor „" + v.art + "“ vom " + v.zeit + " (" + v.n + " Maße gemessen) wiederherstellen? Der jetzige Stand (" +
+    gemessen(state) + " Maße) lässt sich danach ebenso zurückholen.")) return;
+  merkeVorher("Wiederherstellen");
+  auspacken(o); themaAnwenden();
+  sichern(); zeichne();
 }
 /* Welche Namen stehen in der Massdatei? Die eingebaute Liste (die Namen, die die Schnitte lesen), mit
    importierter Vorlage deren Namen dazu. Wert "vorlage": steht in der Vorlage, sonst "liste". */
@@ -1863,7 +1953,7 @@ function karte(x){
       const rr = (state[x.id] || ["","",""]).slice();
       while(rr.length < 3) rr.push("");
       rr[i] = inp.value; state[x.id] = rr;
-      ungesichert = true; zuletzt = x.id;
+      geaendert(x.id); zuletzt = x.id;
       // Lage des Felds vor jeder Änderung merken: Schon die Zeile mit Name und Mittelwert darüber kann
       // umbrechen; kopfAktualisieren() und halte() halten das Feld dann an dieser Stelle
       if(feldZiel !== inp){ feldZiel = inp; feldOben = inp.getBoundingClientRect().top; }
@@ -2039,11 +2129,13 @@ function schalter(text, an, fn){
   z.appendChild(sw);
   return z;
 }
-function themaSetzen(an){
-  dunkel = an;
+function themaAnwenden(){
   document.documentElement.dataset.theme = dunkel ? "dark" : "light";
   const tc = document.querySelector('meta[name="theme-color"]');
   if(tc) tc.content = dunkel ? "#D4A82A" : "#F2C12E";
+}
+function themaSetzen(an){
+  dunkel = an; themaAnwenden();
   sichern();
 }
 function menueZeichnen(){
@@ -2104,6 +2196,36 @@ function speicherHinweis(){
   const w = document.getElementById("speicherwarnung");
   if(w) w.hidden = speicherGeht;
   kopfhoehe();
+}
+// Beim Start einmal, wenn Änderungen seit über einem Tag nicht gesichert sind (ohne Speicher warnt schon #speicherwarnung)
+function mahnungZeigen(){
+  const m = document.getElementById("sicherungsmahnung"), n = geaenderteMasse();
+  if(!m || !speicherGeht || !ungesichert || !geaendertSeit || Date.now() - geaendertSeit < 864e5 || !gemessen(state)) return;
+  document.getElementById("mahntext").textContent = "Seit über einem Tag nicht gesichert" +
+    (n ? " (" + n + (n === 1 ? " Maß" : " Maße") + " geändert)" : "") +
+    ". Die Sicherungsdatei bewahrt die Messungen, falls der Browser seine Daten löscht.";
+  m.hidden = false; kopfhoehe();
+}
+let meldungUhr = 0;
+function meldung(t){
+  const m = document.getElementById("meldung");
+  m.textContent = t; m.hidden = false;
+  clearTimeout(meldungUhr);
+  meldungUhr = setTimeout(function(){ m.hidden = true; }, 4000);
+}
+/* Ein anderer Tab mit derselben Datei hat gespeichert: dessen Stand übernehmen – sonst überschriebe die nächste
+   Eingabe hier die neueren Messungen. Die Seite bleibt an derselben Stelle; zurückgeschrieben wird dabei nichts. */
+function uebernehmen(){
+  if(!speicherGeht) return;
+  let s = null;
+  try{ s = localStorage.getItem(KEY); }catch(e){ return; }
+  if(s === null || s === gespeichert) return;
+  const a = ankerJetzt();
+  uebernimmt = true;
+  try{ laden(); themaAnwenden(); zeichne(); if(a) zumAnker(a); }
+  finally{ uebernimmt = false; }
+  if(overlayOffen === "menue") menueZeichnen();
+  meldung("In einem anderen Tab geändert – hier übernommen.");
 }
 
 function pruefboxInhalt(box){
@@ -2241,7 +2363,7 @@ function befundArt(id, F){
 const geleert = {};
 function leeren(x){
   geleert[x.id] = werte(x.id).map(f1).join(" · ");
-  state[x.id] = ["","",""]; ungesichert = true;
+  state[x.id] = ["","",""]; geaendert(x.id);
   sichern();
   [0,1,2].forEach(function(i){ const f = document.getElementById(x.id + "_" + i); if(f) f.value = ""; });
   const vh = document.getElementById("vorher_" + x.id);
@@ -2436,11 +2558,12 @@ function exportieren(){
   }
   if(teile.length && !confirm(teile.join("\n\n") + "\n\nTrotzdem exportieren?")) return;
   ladeHerunter(baueSmis(), "measurements.smis");
+  if(ungesichert){ nachExport = true; ergebnisTauschen(); }   // unter dem Knopf: Sicherung anbieten, kein zweiter Download
 }
 function sicherungSpeichern(){
   const t = jetztText();
   ladeHerunter(sicherungText(t), "messbuch_sicherung_" + t.slice(0,10) + ".json");
-  gesichert = t; ungesichert = false;
+  gesichertStand(t);
   sichern(); ergebnisTauschen();
 }
 function ergebnisBlock(){
@@ -2480,13 +2603,18 @@ function ergebnisBlock(){
   nl.setAttribute("for","notizfeld");
   const nt = document.createElement("textarea"); nt.id = "notizfeld"; nt.rows = 3; nt.value = notiz;
   nt.oninput = function(){
-    notiz = nt.value; ungesichert = true; sichern();
+    notiz = nt.value; geaendert("notiz"); sichern();
     pre.textContent = textListe() || "– noch keine Messungen –";
   };
   box.appendChild(nl); box.appendChild(nt);
 
   box.appendChild(el("h3", null, "Maßdatei"));
   box.appendChild(knopf("primary breit","Maßdatei exportieren (.smis)", exportieren));
+  if(nachExport && ungesichert){
+    box.appendChild(el("div","hint","Maßdatei gespeichert. Sie enthält nur je einen Mittelwert der Maße, die SeamlyMe kennt – " +
+      "die Sicherung alle drei Messungen, die Buchmaße und die Notiz. Sicherung auch speichern?"));
+    box.appendChild(knopf("primary breit","Sicherung speichern (.json)", sicherungSpeichern));
+  }
   const b2 = knopf("plain breit","Werte kopieren", function(){
     kopiere(textListe(),
       function(){ b2.textContent = "kopiert ✓"; setTimeout(function(){ b2.textContent = "Werte kopieren"; }, 2500); },
@@ -2502,7 +2630,7 @@ function ergebnisBlock(){
     box.appendChild(knopf("plain breit","Vorlage entfernen", function(){
       if(!confirm("Vorlage entfernen? Die Messungen bleiben, der Export nutzt wieder die eingebaute Maßliste.")) return;
       const a = ankerJetzt();             // die Seite wird neu aufgebaut: an derselben Stelle bleiben
-      vorlage = null; sichern(); zeichne();
+      vorlage = null; geaendert("vorlage"); sichern(); zeichne();
       if(a) zumAnker(a);
     }));
   }
@@ -2512,7 +2640,7 @@ function ergebnisBlock(){
     (speicherGeht
       ? "Dieser Browser speichert deine Eingaben. Die Sicherungsdatei schützt zusätzlich und bringt die Messung auf ein anderes Gerät."
       : "Dieser Browser speichert nicht dauerhaft. Ohne Sicherung sind die Eingaben nach dem Schließen weg.") +
-    (gesichert ? " Letzte Sicherung: " + gesichert + "." : " Noch keine Sicherung gespeichert.")));
+    (gesichert ? " Letzte Sicherung: " + gesichert + "." : " Noch keine Sicherung gespeichert.") + seitText()));
   box.appendChild(knopf("primary breit","Sicherung speichern (.json)", sicherungSpeichern));
   box.appendChild(knopf("plain breit","Sicherung laden", function(){
     document.getElementById("sicherungsdatei").click(); }));
@@ -2530,15 +2658,21 @@ function ergebnisBlock(){
       "Den kopierten Sicherungstext hier einfügen.", "", "Sicherung laden",
       function(f){ if(sicherungLaden(f.value)) overlayZu(false); });
   }));
+  const v = vorherLesen();
+  if(v) box.appendChild(knopf("plain breit","Rückgängig: Stand vor „" + v.art + "“ (" + v.zeit + ", " + v.n +
+    (v.n === 1 ? " Maß)" : " Maße)"), rueckgaengig));
 
   box.appendChild(el("h3", null, "Löschen"));
   box.appendChild(knopf("danger breit","Messungen löschen (Import bleibt)", function(){
-    if(confirm("Alle Messungen entfernen? Die importierte Vorlage bleibt erhalten.")){
-      state = {}; sichern(); zeichne();
+    if(confirm("Alle Messungen entfernen (" + gemessen(state) + " Maße gemessen)? Die importierte Vorlage bleibt erhalten. " +
+      "„Rückgängig“ unter Sicherung holt sie zurück.")){
+      merkeVorher("Messungen löschen");
+      state = {}; geaendert("alles"); sichern(); zeichne();
     }}));
   box.appendChild(knopf("danger breit","Alles zurücksetzen", function(){
-    if(confirm("Wirklich alles löschen, auch die importierte Vorlage und die Notiz?")){
-      state = {}; vorlage = null; notiz = ""; sichern(); zeichne();
+    if(confirm("Wirklich alles löschen, auch die importierte Vorlage und die Notiz? „Rückgängig“ unter Sicherung holt es zurück.")){
+      merkeVorher("Alles zurücksetzen");
+      state = {}; vorlage = null; notiz = ""; geaendert("alles"); sichern(); zeichne();
     }}));
   return box;
 }
@@ -2617,7 +2751,7 @@ function zeichne(){
 
 /* ── Start ─────────────────────────────────────────────── */
 laden();
-document.documentElement.dataset.theme = dunkel ? "dark" : "light";
+themaAnwenden();
 document.getElementById("menueknopf").onclick = function(){
   if(overlayOffen === "menue") overlayZu(false); else menueAuf(); };
 document.getElementById("menueschleier").onclick = function(){ overlayZu(false); };
@@ -2627,6 +2761,10 @@ document.getElementById("zoomgroesse").onclick = zoomUmschalten;
 document.getElementById("zoomzu").onclick = function(){ overlayZu(false); };
 document.getElementById("dlgzu").onclick = function(){ overlayZu(false); };
 document.getElementById("warnsichern").onclick = sicherungSpeichern;
+document.getElementById("mahnsichern").onclick = sicherungSpeichern;
+document.getElementById("mahnzu").onclick = function(){
+  document.getElementById("sicherungsmahnung").hidden = true; kopfhoehe(); };
+window.addEventListener("storage", function(e){ if(e.key === KEY) uebernehmen(); });   // nicht KEY+"_test" oder "_vorher"
 window.addEventListener("popstate", function(e){
   if(zurueckEigen){ zurueckFertig(); return; }  // eigener Schritt beim Schließen, danach z. B. der Sprung
   if(overlayOffen){ overlayZu(true); return; }
@@ -2644,7 +2782,9 @@ document.addEventListener("keydown", function(e){
   if(e.key === "Escape") overlayZu(false);
 });
 document.addEventListener("visibilitychange", function(){
-  if(wachAn && document.visibilityState === "visible") wachSetzen(true);
+  if(document.visibilityState !== "visible") return;
+  uebernehmen();                                      // ein schlafender Tab bekommt das storage-Ereignis oft nicht
+  if(wachAn) wachSetzen(true);
 });
 document.addEventListener("click", function(){        // nach einer Ablehnung beim Start: beim nächsten Antippen noch einmal
   if(wachNochmal){ wachNochmal = false; if(wachAn) wachSetzen(true); }
@@ -2659,7 +2799,7 @@ document.getElementById("datei").onchange = function(ev){
     const t = String(r.result || "");
     const f = vorlageFehler(t);
     if(f){ alert(f); return; }
-    vorlage = t; sichern(); zeichne();
+    vorlage = t; geaendert("vorlage"); sichern(); zeichne();
   };
   r.readAsText(f);
   ev.target.value = "";
@@ -2671,7 +2811,16 @@ document.getElementById("sicherungsdatei").onchange = function(ev){
   r.readAsText(f);
   ev.target.value = "";
 };
-zeichne();
+try{ zeichne(); }
+catch(e){                                     // Stand lässt sich nicht anzeigen: wenigstens sichern oder eine Sicherung laden
+  const main = document.getElementById("main");
+  main.innerHTML = "";
+  main.appendChild(el("p", "warnung", "Die gespeicherten Eingaben lassen sich nicht anzeigen (" + ((e && e.message) || e) +
+    "). Speichere sie als Sicherung, oder lade eine ältere."));
+  main.appendChild(knopf("primary breit", "Sicherung speichern (.json)", sicherungSpeichern));
+  main.appendChild(knopf("plain breit", "Sicherung laden", function(){ document.getElementById("sicherungsdatei").click(); }));
+}
+mahnungZeigen();
 if(wachAn && WACH && document.visibilityState === "visible") wachSetzen(true);
 </script>
 </body>
