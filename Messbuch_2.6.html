@@ -134,6 +134,10 @@ button.breit{display:block;width:100%;margin-top:8px}
 .befund .nachweis span{flex:1 1 220px}
 .befund .nachweis button{flex:0 0 auto;min-height:44px;padding:9px 14px;font-size:15px;line-height:1.3}
 .pill.neu{background:var(--bad);color:var(--onBad);border-color:var(--bad)}
+/* Ergebnis: Werte mit „Neu messen“, die in die Maßdatei gehen */
+.verdacht{margin-top:4px;font-size:15px;line-height:1.45;font-weight:600;color:var(--bad)}
+.verdacht.sprung{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-bottom:10px}
+.verdacht.sprung span{flex:1 1 220px}
 .auffaellig{margin-top:12px;padding-top:8px;border-top:1px dashed var(--line)}
 .auffaellig .eintrag{margin-top:8px}
 button.pruefsprung{display:block;width:100%;text-align:left;min-height:44px;padding:9px 12px;
@@ -333,23 +337,46 @@ function sicherungLaden(txt){
   const n = Object.keys(o.state).filter(function(k){
     return BY[k] && (o.state[k] || []).some(function(v){ return String(v == null ? "" : v).trim() !== ""; });
   }).length;
+  // Die Vorlage wird nur ersetzt, wenn die Sicherung eine brauchbare mitbringt – sonst bleibt die importierte
+  const neueV = typeof o.vorlage === "string" ? o.vorlage : null;
+  const grund = neueV === null ? "" : vorlageFehler(neueV);
+  const zurV = neueV === null ? (vorlage ? " Die importierte Vorlage bleibt, die Sicherung enthält keine." : "")
+    : grund ? " Die Vorlage in der Sicherung wird nicht übernommen: " + grund + (vorlage ? " Die importierte Vorlage bleibt." : "")
+    : neueV === vorlage ? ""
+    : vorlage ? " Die importierte Vorlage wird durch die aus der Sicherung ersetzt."
+    : " Die Vorlage aus der Sicherung wird übernommen.";
   if(!confirm("Sicherung vom " + (o.datum || "unbekannten Datum") + " mit " + n +
-      " gemessenen Maßen laden? Die jetzigen Eingaben werden ersetzt.")) return false;
+      " gemessenen Maßen laden? Die jetzigen Eingaben werden ersetzt." + zurV)) return false;
   state = {};
   Object.keys(o.state).forEach(function(k){ if(BY[k]) state[k] = o.state[k]; });
-  if(typeof o.vorlage === "string") vorlage = o.vorlage;
+  if(neueV !== null && !grund) vorlage = neueV;
   if(typeof o.notiz === "string") notiz = o.notiz;
   ungesichert = false;
   sichern(); zeichne();
   return true;
 }
-/* Welche Namen stehen in der Massdatei? Mit importierter Vorlage deren Namen,
-   sonst die eingebaute Liste. */
+/* Welche Namen stehen in der Massdatei? Die eingebaute Liste (die Namen, die die Schnitte lesen), mit
+   importierter Vorlage deren Namen dazu. Wert "vorlage": steht in der Vorlage, sonst "liste". */
 function dateiNamen(){
   const s = {};
-  if(vorlage) Object.keys(parseSmis(vorlage)).forEach(function(k){ s[k] = true; });
-  else DEF.forEach(function(p){ s[p[0]] = true; });
+  DEF.forEach(function(p){ s[p[0]] = "liste"; });
+  if(vorlage) Object.keys(parseSmis(vorlage)).forEach(function(k){ s[k] = "vorlage"; });
   return s;
+}
+// Mit Vorlage ein Name der eingebauten Liste, der dort fehlt: ungemessen steht er gar nicht in der Datei
+// (gemessen hängt ihn ausVorlage() an)
+function fehltInVorlage(k){ return !!vorlage && DATEI[k] === "liste"; }
+// Einheit einer .smis-Datei, ohne Angabe cm. Die Messungen sind in cm: In eine Vorlage in mm oder Zoll
+// kämen sonst cm-Werte zwischen ihre eigenen. Umgerechnet wird nicht.
+function smisEinheit(t){
+  const m = /<unit>\s*([^<\s]+)\s*<\/unit>/.exec(t);
+  return m ? m[1].toLowerCase() : "cm";
+}
+// Warum ein Text nicht als Vorlage taugt – leer, wenn er taugt
+function vorlageFehler(t){
+  if(!Object.keys(parseSmis(t)).length) return "Keine gültige .smis-Datei.";
+  const u = smisEinheit(t);
+  return u === "cm" ? "" : "Die Vorlage ist in " + u + " angelegt, das Messbuch rechnet in cm. In SeamlyMe auf cm umstellen, neu speichern und dann importieren.";
 }
 function inDatei(x){
   if(DATEI[x.id]) return true;
@@ -1277,43 +1304,62 @@ function baueSmis(){
   const w = winkel();
   if(vorlage) return ausVorlage(vorlage, w);
   const inDef = {}; DEF.forEach(function(p){ inDef[p[0]] = true; });
-  const buch = buchWerte().filter(function(b){ return !inDef[b[0]]; }), eigene = [], std = [], werte = [];
+  const buch = buchWerte().filter(function(b){ return !inDef[b[0]]; }), werte = [];
   DEF.forEach(function(p){
     const k = p[0]; let v = p[1];
     if(k === "shoulder_slope_neck_side_angle"){ if(!isNaN(w)) v = halbgrad(w); }
     else { let g = mittel(k); if(isNaN(g) && BYSEAMLY[k]) g = mittel(BYSEAMLY[k].id); if(!isNaN(g)) v = g; }
     werte.push([k,v]);
-    const gem = (k === "shoulder_slope_neck_side_angle") ? !isNaN(w) : (hat(k) || !!(BYSEAMLY[k] && hat(BYSEAMLY[k].id)));
-    (gem ? eigene : std).push(k);
   });
-  // Lokales Datum wie in der Android-Fassung (LocalDate.now()) - toISOString()
-  // waere UTC und damit nachts um 0-2 Uhr ein Tag daneben.
-  const d = new Date();
-  const heute = d.getFullYear() + "-" +
-    String(d.getMonth()+1).padStart(2,"0") + "-" +
-    String(d.getDate()).padStart(2,"0");
-  let notes = "Eigene Messung vom "+heute+". "+eigene.length+" Maße gemessen";
-  if(std.length) notes += ", "+std.length+" noch Standardwerte ("+std.join(", ")+")";
-  notes += ".";
-  if(buch.length) notes += " Dazu "+buch.length+" Buchmaß(e) mit SeamlyMe-Kennung: "+
-    buch.map(function(b){return b[0];}).join(", ")+".";
-  if(notiz.trim()) notes += " Notiz: "+notiz.trim().replace(/\s+/g," ");
-  let s = TEMPLATE_HEAD.replace("__NOTES__", esc(notes));
+  // split/join statt replace(): „$&“ oder „$'“ in der Notiz wären dort Ersetzungsmuster
+  let s = TEMPLATE_HEAD.split("__NOTES__").join(esc(notizText(buch)));
   werte.forEach(function(p){ s += '        <m name="'+p[0]+'" value="'+fdatei(p[1])+'"/>\n'; });
   buch.forEach(function(p){ s += '        <m name="'+p[0]+'" value="'+fdatei(p[1])+'"/>\n'; });
   return s + "    </body-measurements>\n</smis>\n";
 }
+/* Text für <notes>: Datum, was gemessen ist, Buchmaße ausserhalb der Namen der Maßdatei (buch) und die
+   eigene Notiz. Lokales Datum wie in der Android-Fassung (LocalDate.now()) - toISOString()
+   waere UTC und damit nachts um 0-2 Uhr ein Tag daneben. */
+function notizText(buch){
+  const d = new Date();
+  const heute = d.getFullYear() + "-" +
+    String(d.getMonth()+1).padStart(2,"0") + "-" +
+    String(d.getDate()).padStart(2,"0");
+  const offen = standardListe(), uebrig = offen.filter(function(k){ return !fehltInVorlage(k); });
+  let notes = "Eigene Messung vom "+heute+". "+(Object.keys(DATEI).length - offen.length)+" Maße gemessen";
+  if(uebrig.length) notes += ", "+uebrig.length+(!vorlage ? " noch Standardwerte (" : uebrig.length === 1 ?
+    " Wert aus der Vorlage übernommen (" : " Werte aus der Vorlage übernommen (")+
+    uebrig.join(", ")+")";
+  notes += ".";
+  if(buch.length) notes += " Dazu "+buch.length+" Buchmaß(e) mit SeamlyMe-Kennung: "+
+    buch.map(function(b){return b[0];}).join(", ")+".";
+  if(notiz.trim()) notes += " Notiz: "+notiz.trim().replace(/\s+/g," ");
+  return notes;
+}
+const NOTIZ_VORLAGE = " – Notiz der Vorlage: ";   // trennt in <notes> die eigene Notiz von der einer fremden Vorlage
 function ausVorlage(tpl, w){
   const buch = buchWerte();
-  const offen = {};
+  const offen = {}, vorhanden = {};
   buch.forEach(function(b){ offen[b[0]] = true; });
+  // jedes <m>-Element zählt, auch mit weiteren Angaben oder über mehrere Zeilen – kein Name darf doppelt in die Datei
+  tpl.replace(/<m\s(?:[^>]*?\s)?name="([^"]+)"/g, function(a, k){ vorhanden[k] = true; return a; });
+  // was der Vorlage fehlt: gemessene Namen der eingebauten Liste, dann die Schulterneigung, danach die Buchmaße
+  const dazu = [];
+  DEF.forEach(function(p){
+    const k = p[0]; if(vorhanden[k] || k === WINKEL) return;
+    let v = mittel(k); if(isNaN(v) && BYSEAMLY[k]) v = mittel(BYSEAMLY[k].id);
+    if(!isNaN(v)){ dazu.push([k, v]); delete offen[k]; }
+  });
+  if(!vorhanden[WINKEL] && !isNaN(w)) dazu.push([WINKEL, halbgrad(w)]);
   const aus = [];
   tpl.split("\n").forEach(function(zeile){
-    const t = zeile.match(/^\s*<m\s+name="([^"]+)"\s+value="([^"]*)"\s*\/>\s*$/);
+    const t = mZeile(zeile);
+    const cr = zeile.slice(-1) === "\r" ? "\r" : "";      // Zeilenende der Vorlage beibehalten
     if(!t){
       if(zeile.indexOf("</body-measurements>") >= 0){
+        dazu.forEach(function(b){ aus.push('        <m name="'+b[0]+'" value="'+fdatei(b[1])+'"/>'+cr); });
         buch.forEach(function(b){
-          if(offen[b[0]]){ aus.push('        <m name="'+b[0]+'" value="'+fdatei(b[1])+'"/>'); delete offen[b[0]]; }
+          if(offen[b[0]] && !vorhanden[b[0]]){ aus.push('        <m name="'+b[0]+'" value="'+fdatei(b[1])+'"/>'+cr); delete offen[b[0]]; }
         });
       }
       aus.push(zeile); return;
@@ -1327,16 +1373,40 @@ function ausVorlage(tpl, w){
     } else if(k !== "shoulder_slope_neck_side_angle"){
       const v = mittel(k); if(!isNaN(v)) neu = v;
     }
-    aus.push(neu === null ? zeile : '        <m name="'+k+'" value="'+fdatei(neu)+'"/>');
+    // nur den Wert ersetzen: Einrückung, Reihenfolge und weitere Angaben der Vorlage bleiben
+    aus.push(neu === null ? zeile : zeile.replace(/(\svalue=")[^"]*"/, function(a, vor){ return vor + fdatei(neu) + '"'; }));
   });
   let s = aus.join("\n");
   if(tpl.charAt(tpl.length-1) === "\n" && s.slice(-2) === "\n\n") s = s.slice(0,-1);
+  // Notiz erst im fertigen Text (sie kann mehrzeilig sein): eine eigene frühere Exportnotiz ersetzen, eine
+  // fremde so, wie sie in der Datei steht, dahinter erhalten; fehlt <notes>, an seinen Platz vor <unit>
+  const eigen = "<notes>" + esc(notizText(buch.filter(function(b){ return !DATEI[b[0]]; })));
+  const m = /<notes\b[^>]*?\/>|<notes\b[^>]*>([\s\S]*?)<\/notes>/.exec(s);
+  if(m){
+    let fremd = (m[1] || "").trim();
+    if(fremd.indexOf("Eigene Messung vom ") === 0){
+      const i = fremd.indexOf(NOTIZ_VORLAGE);
+      fremd = i >= 0 ? fremd.slice(i + NOTIZ_VORLAGE.length) : "";
+    }
+    s = s.slice(0, m.index) + eigen + (fremd ? NOTIZ_VORLAGE + fremd : "") + "</notes>" + s.slice(m.index + m[0].length);
+  } else {
+    const u = /^([ \t]*)<(unit|pm_system|personal|body-measurements)\b/m.exec(s);
+    if(u) s = s.slice(0, u.index) + u[1] + eigen + "</notes>" + (s.indexOf("\r\n") >= 0 ? "\r\n" : "\n") + s.slice(u.index);
+  }
   return s;
+}
+/* Eine Zeile mit genau einem <m …/>: [Zeile, name, value] oder null. Name und Wert in beliebiger Reihenfolge,
+   weitere Angaben erlaubt (SeamlyMe selbst schreibt <m name=… value=…/>). */
+function mZeile(zeile){
+  const t = /^\s*<m((?:\s+[\w:.-]+="[^"]*")+)\s*\/>\s*$/.exec(zeile);
+  if(!t) return null;
+  const n = /\sname="([^"]+)"/.exec(t[1]), v = /\svalue="([^"]*)"/.exec(t[1]);
+  return n && v ? [t[0], n[1], v[1]] : null;
 }
 function parseSmis(txt){
   const map = {};
   txt.split("\n").forEach(function(zeile){
-    const t = zeile.match(/^\s*<m\s+name="([^"]+)"\s+value="([^"]*)"\s*\/>\s*$/);
+    const t = mZeile(zeile);
     if(!t) return;
     const v = Number(t[2].replace(",", "."));
     if(isFinite(v)) map[t[1]] = v;
@@ -1893,20 +1963,8 @@ function pillsZeichnen(c){
     pills.appendChild(fb);
   }
   const neu = neuZuMessen();
-  if(neu.length){                       // reihum zur nächsten Karte, die neu gemessen werden muss
-    pills.appendChild(knopf("pill neu", neu.length + " neu messen", function(){
-      const karten = neu.map(function(id){ return document.getElementById("karte_" + id); }).filter(Boolean);
-      if(!karten.length) return;
-      const a = ankerJetzt();             // vor alleZeigen(), das verschiebt die Seite
-      if(karten.some(function(k){ return k.hidden; })) alleZeigen();
-      // die nächste Karte nach der zuletzt angesprungenen – nach der Lage im Dokument, denn die ist
-      // nach einer Korrektur oft nicht mehr in der Liste (oder vom Filter versteckt)
-      const danach = function(a, b){ return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); };
-      karten.sort(function(a,b){ return danach(a,b) ? -1 : 1; });
-      const ref = neuLetzt && document.getElementById(neuLetzt);
-      const z = (ref && karten.find(function(k){ return danach(ref, k); })) || karten[0];
-      neuLetzt = z.id; springe(z.id, a); }));
-  }
+  if(neu.length)                        // reihum zur nächsten Karte, die neu gemessen werden muss
+    pills.appendChild(knopf("pill neu", neu.length + " neu messen", function(){ neuSchritt(neu); }));
   // wie die Prüfliste sortiert: Konflikte zuerst, „passen“ zuletzt (bei 390 px Breite außer Sicht)
   [["bad", c.BAD, c.BAD === 1 ? "Konflikt" : "Konflikte"],["warn", c.WARN, "prüfen"],
    ["open", c.OPEN, "offen"],["ok", c.OK, "passen"]]
@@ -1924,6 +1982,20 @@ function pillsRand(){
   p.classList.toggle("ueberlauf", p.scrollLeft + p.clientWidth < p.scrollWidth - 2);
 }
 let neuLetzt = null;                    // Id der zuletzt angesprungenen Karte der Reihe „neu messen“
+// reihum zur nächsten Karte aus neu – Kopf: alle „Neu messen“, Ergebnis: die mit Werten der Maßdatei
+function neuSchritt(neu){
+  const karten = neu.map(function(id){ return document.getElementById("karte_" + id); }).filter(Boolean);
+  if(!karten.length) return;
+  const a = ankerJetzt();             // vor alleZeigen(), das verschiebt die Seite
+  if(karten.some(function(k){ return k.hidden; })) alleZeigen();
+  // die nächste Karte nach der zuletzt angesprungenen – nach der Lage im Dokument, denn die ist
+  // nach einer Korrektur oft nicht mehr in der Liste (oder vom Filter versteckt)
+  const danach = function(a, b){ return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); };
+  karten.sort(function(a,b){ return danach(a,b) ? -1 : 1; });
+  const ref = neuLetzt && document.getElementById(neuLetzt);
+  const z = (ref && karten.find(function(k){ return danach(ref, k); })) || karten[0];
+  neuLetzt = z.id; springe(z.id, a);
+}
 // „Weiter bei …“: das zuletzt bearbeitete Maß, sobald es Werte gibt
 function weiterZiel(){
   return zuletzt && BY[zuletzt] && M.some(function(x){ return hat(x.id); }) ? zuletzt : null;
@@ -2274,15 +2346,95 @@ function ergebnisTauschen(){
   const alt = document.getElementById("ergebnisbox");
   if(alt) alt.replaceWith(ergebnisBlock());
 }
-function exportieren(){
-  const offen = standardListe();
-  if(offen.length){
-    const frage = offen.length + " Werte der Maßdatei hast du noch nicht selbst gemessen. Sie bleiben " +
-      (vorlage ? "wie in der importierten Vorlage" : "Standardwerte") + ":\n\n" +
-      offen.map(nameZu).join(", ") +
-      "\n\nSchnitte, die diese Maße verwenden, rechnen dann mit fremden Werten. Trotzdem exportieren?";
-    if(!confirm(frage)) return;
+/* ── „Neu messen“ in der Maßdatei ────────────────────────
+   Welche Maße mit Verdacht gehen in die .smis – direkt (Namen der Maßdatei und Buchmaße mit
+   SeamlyMe-Kennung, die schreibt der Export immer) oder über die Schulterneigung? Bei der zählen nur
+   die Eingaben des Wegs, den winkel() gerade nimmt. */
+function aufzaehlung(l){ return l.length > 1 ? l.slice(0,-1).join(", ") + " und " + l[l.length-1] : l.join(""); }
+function winkelEingaben(){
+  const weg = winkelWeg();
+  return weg === "DROP" ? ["b_shoulder_depth","b_shoulder_drop"]
+    : weg === "HEIGHTS" ? ["height_neck_side","x_height_shoulder_tip","shoulder_length"] : [];
+}
+function winkelSchnitte(){
+  const s = [];
+  Object.keys(WINKEL_EINGABEN).forEach(function(id){
+    ((DATEN.schnitte || {})[id] || []).forEach(function(n){ if(s.indexOf(n) < 0) s.push(n); });
+  });
+  return s;
+}
+// das Maß, dessen Wert unter einem Namen der Maßdatei steht (wie baueSmis()), sonst null
+function dateiQuelle(k){
+  if(k === WINKEL) return null;
+  if(hat(k)) return k;
+  return BYSEAMLY[k] && hat(BYSEAMLY[k].id) ? BYSEAMLY[k].id : null;
+}
+function dateiVerdacht(F){
+  F = F || befunde(pruefungen());
+  const neu = neuZuMessen(F), ist = function(id){ return neu.indexOf(id) >= 0; };
+  const eingaben = winkelEingaben(), imWinkel = function(id){ return eingaben.indexOf(id) >= 0; };
+  const drin = function(id){ return hat(id) && !!(DATEI[id] || BY[id].seamlyId); };
+  // schnitt: von einem Schnitt gelesen (DATEN.schnitte), sonst: nur in der Datei; winkel: Eingaben mit Verdacht
+  const V = {eingaben: eingaben, winkel: eingaben.filter(ist), schnitt: [], sonst: [], nach: 0, datei: 0, karten: []};
+  neu.forEach(function(id){
+    if(WINKEL_EINGABEN[id] && imWinkel(id)) return;          // steht bei der Schulterneigung
+    if(!drin(id)) return;
+    ((DATEN.schnitte || {})[id] && !WINKEL_EINGABEN[id] ? V.schnitt : V.sonst).push(id);
+  });
+  V.nach = M.filter(function(x){
+    const v = F.verdacht[x.id];
+    return v && !v.neu.length && v.nach.length && (drin(x.id) || imWinkel(x.id));
+  }).length;
+  // für „Maßdatei: x von y“: Namen der Maßdatei mit verdächtigem Wert und die Karten dahinter
+  const k = {};
+  Object.keys(DATEI).forEach(function(n){
+    if(n === WINKEL){ if(V.winkel.length){ V.datei++; V.winkel.forEach(function(id){ k[id] = true; }); } return; }
+    const q = dateiQuelle(n);
+    if(q && ist(q)){ V.datei++; k[q] = true; }
+  });
+  V.karten = M.filter(function(x){ return k[x.id]; }).map(function(x){ return x.id; });
+  return V;
+}
+// Absätze der Rückfrage beim Export: zuerst, was die Schnitte lesen, mit Wert und Schnitten
+function verdachtText(V){
+  const t = [], zeilen = V.schnitt.map(function(id){
+    return "• " + nm(id) + " " + f1(mittel(id)) + " cm – " + DATEN.schnitte[id].join(", ");
+  });
+  if(V.winkel.length){
+    const n = V.eingaben.length;
+    zeilen.push("• Schulterneigung " + f1(halbgrad(winkel())) + "° aus " + aufzaehlung(V.eingaben.map(nm)) + " (" +
+      (V.winkel.length === n ? (n === 2 ? "beide" : "alle drei") + " „Neu messen“" : "„Neu messen“: " + aufzaehlung(V.winkel.map(nm))) +
+      ") – " + winkelSchnitte().join(", "));
   }
+  if(zeilen.length) t.push((zeilen.length === 1 ? "Ein Wert, den deine Schnitte aus der Maßdatei lesen, ist"
+    : zeilen.length + " Werte, die deine Schnitte aus der Maßdatei lesen, sind") + " als „Neu messen“ markiert (Verdacht):\n" + zeilen.join("\n"));
+  if(V.sonst.length) t.push((zeilen.length ? "Außerdem in der Datei, von deinen Schnitten nicht gelesen: "
+    : V.sonst.length === 1 ? "In der Maßdatei steht ein Wert, der als „Neu messen“ markiert ist (Verdacht). Deine Schnitte lesen ihn nicht: "
+    : "In der Maßdatei stehen Werte, die als „Neu messen“ markiert sind (Verdacht). Deine Schnitte lesen sie nicht: ") +
+    V.sonst.map(function(id){ return nm(id) + " (" + f1(mittel(id)) + " cm)"; }).join("; ") + ".");
+  if(t.length && V.nach) t.push("Dazu " + (V.nach === 1 ? "1 Wert" : V.nach + " Werte") + " in der Datei mit „Nachmessen empfohlen“.");
+  return t;
+}
+// Eine Rückfrage für alles: Werte mit „Neu messen“ und Werte, die noch nicht selbst gemessen sind
+function exportieren(){
+  if(vorlage && smisEinheit(vorlage) !== "cm"){
+    alert("Die importierte Vorlage ist in " + smisEinheit(vorlage) + " angelegt, das Messbuch rechnet in cm. " +
+      "Bitte die Vorlage entfernen oder in cm neu importieren.");
+    return;
+  }
+  const teile = verdachtText(dateiVerdacht()), offen = standardListe();
+  if(offen.length){
+    const fehlt = offen.filter(fehltInVorlage), bleibt = offen.filter(function(k){ return !fehltInVorlage(k); });
+    if(bleibt.length) teile.push((bleibt.length === 1 ? "1 Wert der Maßdatei hast du noch nicht selbst gemessen. Er bleibt "
+      : bleibt.length + " Werte der Maßdatei hast du noch nicht selbst gemessen. Sie bleiben ") +
+      (vorlage ? "wie in der importierten Vorlage" : bleibt.length === 1 ? "ein Standardwert" : "Standardwerte") + ":\n" +
+      bleibt.map(nameZu).join(", "));
+    if(fehlt.length) teile.push((fehlt.length === 1 ? "1 Wert, den deine Schnitte lesen, steht" : fehlt.length +
+      " Werte, die deine Schnitte lesen, stehen") + " nicht in der Vorlage und " + (fehlt.length === 1 ? "ist" : "sind") +
+      " noch nicht gemessen. In der Datei " + (fehlt.length === 1 ? "fehlt er" : "fehlen sie") + " ganz:\n" + fehlt.map(nameZu).join(", "));
+    teile.push("Schnitte, die diese Maße verwenden, rechnen dann mit fremden Werten" + (fehlt.length ? " oder gar nicht." : "."));
+  }
+  if(teile.length && !confirm(teile.join("\n\n") + "\n\nTrotzdem exportieren?")) return;
   ladeHerunter(baueSmis(), "measurements.smis");
 }
 function sicherungSpeichern(){
@@ -2294,18 +2446,30 @@ function sicherungSpeichern(){
 function ergebnisBlock(){
   const box = el("div","card"); box.id = "ergebnisbox";
   box.appendChild(el("h2", null, "Ergebnis"));
-  const w = winkel();
+  const w = winkel(), V = dateiVerdacht();
   if(!isNaN(w)){
     box.appendChild(el("div","mass", "Schulterneigung: " + f1(w) + "°"));
+    if(V.winkel.length) box.appendChild(el("div","verdacht", "Beruht auf Werten mit Verdacht: " +
+      aufzaehlung(V.winkel.map(nm)) + (V.winkel.length > 1 ? " stehen" : " steht") + " auf „Neu messen“."));
     box.appendChild(el("div","hint", winkelWeg() === "DROP" ? T.angleDrop : T.angleHeights));
   }
   const offen = standardListe(), alle = Object.keys(DATEI).length;
   box.appendChild(el("div","hint", "Maßdatei: " + (alle - offen.length) + " von " + alle +
     " Werten selbst gemessen."));
+  if(V.datei){                          // reihum zu den Karten dahinter, wie die Kopf-Pill
+    const z = el("div","verdacht sprung");
+    z.appendChild(el("span", null, "Davon " + V.datei + " als „Neu messen“ markiert (Verdacht)."));
+    const b = knopf("pill neu", "zur nächsten Karte", function(){ neuSchritt(V.karten); });
+    b.setAttribute("aria-label", "Zur nächsten Karte „Neu messen“ mit einem Wert der Maßdatei");
+    z.appendChild(b);
+    box.appendChild(z);
+  }
   if(offen.length){
-    const d = el("details");
+    const d = el("details"), fehlt = offen.filter(fehltInVorlage);
     d.appendChild(el("summary", null, offen.length + " Werte fehlen noch"));
     d.appendChild(el("div","hint", offen.map(nameZu).join(", ")));
+    if(fehlt.length) d.appendChild(el("div","hint", "Davon nicht in der Vorlage, ohne Messung also gar nicht in der Datei: " +
+      fehlt.map(nameZu).join(", ")));
     box.appendChild(d);
   }
   box.appendChild(el("div", null, T.valuesNote));
@@ -2334,7 +2498,13 @@ function ergebnisBlock(){
   if(vorlage){
     box.appendChild(el("div","hint","Vorlage geladen ("+
       Object.keys(parseSmis(vorlage)).length+
-      " Werte). Sie wird beim Export als Grundgerüst verwendet."));
+      " Werte). Sie wird beim Export als Grundgerüst verwendet; gemessene Maße, die ihr fehlen, hängt der Export an."));
+    box.appendChild(knopf("plain breit","Vorlage entfernen", function(){
+      if(!confirm("Vorlage entfernen? Die Messungen bleiben, der Export nutzt wieder die eingebaute Maßliste.")) return;
+      const a = ankerJetzt();             // die Seite wird neu aufgebaut: an derselben Stelle bleiben
+      vorlage = null; sichern(); zeichne();
+      if(a) zumAnker(a);
+    }));
   }
 
   box.appendChild(el("h3", null, "Sicherung"));
@@ -2487,7 +2657,8 @@ document.getElementById("datei").onchange = function(ev){
   const r = new FileReader();
   r.onload = function(){
     const t = String(r.result || "");
-    if(Object.keys(parseSmis(t)).length === 0){ alert("Keine gültige .smis-Datei"); return; }
+    const f = vorlageFehler(t);
+    if(f){ alert(f); return; }
     vorlage = t; sichern(); zeichne();
   };
   r.readAsText(f);

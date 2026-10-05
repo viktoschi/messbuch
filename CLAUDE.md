@@ -59,7 +59,8 @@ When touching a check in `pruefungen()`, compare its results (title/kind/status/
   `texts.prepImages`/`markImages`) and `sy_<fig>_h|d` (Seamly diagrams, **built dynamically** in `seamlyBlock()`
   from `seamly.karten[id].fig` — not findable by text search).
 - `seamly.karten` / `seamly.figuren`: SeamlyMe code, description and diagram legend per measure.
-- `defaults`: `[seamlyName, value]` pairs = the built-in measurement file used when no template is imported.
+- `defaults`: `[seamlyName, value]` pairs = the built-in measurement file used when no template is imported. Its
+  names (the ones the patterns read) also count with a template: measured ones missing there are appended.
 - `templateHead`: `.smis` XML header with `__NOTES__` placeholder.
 - `armloch`: ids for the "Armloch und Ärmel" filter; `schnitte`: id → patterns that use the measure.
 
@@ -119,8 +120,9 @@ When touching a check in `pruefungen()`, compare its results (title/kind/status/
   auseinander"), a `Richtwert` measure is one unless strongly confirmed — then it stays "✓ bestätigt" with
   "ungewöhnlicher Wert" (`F.ungewoehnlich`) instead of "nicht nachmessen". Each suspicion carries `wie`
   (`offen | selten | alle | streuung | richtwert`) for the reason text. BAD suspects = "Neu messen"
-  (card badge, class `neumessen`, header pill cycling through them via `neuLetzt` — the next card after the last one
-  jumped to, by DOM position, since a corrected card drops out of the list — filter `neu`), WARN suspects =
+  (card badge, class `neumessen`, header pill cycling through them via `neuSchritt(ids)` — the next card after
+  `neuLetzt`, the last one jumped to, by DOM position, since a corrected card drops out of the list; the Ergebnis line
+  "Davon N als „Neu messen“ markiert" uses it too — filter `neu`), WARN suspects =
   "Nachmessen empfohlen"; other measured cards show "✓ bestätigt", "grob geprüft" or "nicht gegengeprüft"
   (`befund_<id>`; `befundArt(id, F)` gives this one word for cards and jump buttons alike). "Neu messen" and
   "Nachmessen" cards add that all fields are averaged (overwrite the wrong value, don't add one next to it);
@@ -149,8 +151,8 @@ When touching a check in `pruefungen()`, compare its results (title/kind/status/
   at the top under the header (`ankerJetzt()`: card, check, heading, plus its offset to `ankerLinie()`) — and pushes
   a new entry; the back key (popstate with `anker`) returns there via `zumAnker()` (`halteDy` keeps the offset while
   images load). It stores the element, not the scroll position, since lazy images move the page by thousands of
-  pixels. Take the anchor before anything that shifts the page, i.e. before `alleZeigen()` (see `zeigeMass()` and the
-  "neu messen" pill); from the menu `menueAnker` (state when it was opened) is used. `springe(id, false)` adds no
+  pixels. Take the anchor before anything that shifts the page, i.e. before `alleZeigen()` (see `zeigeMass()` and
+  `neuSchritt()`); from the menu `menueAnker` (state when it was opened) is used. `springe(id, false)` adds no
   history entry (small correction inside the same card, e.g. `leeren()`). Menu entries lift a filter that hides
   their target. Test visibility with `zuSehen()`/`sichtbar()`, not with the height alone: Chrome lays out the content
   of a closed `<details>` with real sizes (hidden only via content-visibility), at positions over the cards.
@@ -158,11 +160,40 @@ When touching a check in `pruefungen()`, compare its results (title/kind/status/
 - **Shoulder slope**: `winkel()` derives `shoulder_slope_neck_side_angle` from depth/drop, falling back to heights;
   exported rounded to 0.5°.
 - **`.smis` export**: `baueSmis()` either fills `defaults` into `templateHead`, or — if the user imported their own
-  `.smis` (`vorlage`) — `ausVorlage()` rewrites only the `<m name=… value=…/>` lines it has values for and appends
-  book measures with a SeamlyMe id. Local date is used on purpose (matches the Android version).
+  `.smis` (`vorlage`) — `ausVorlage()` replaces only the `value` of each one-line `<m …/>` it has a value for (`mZeile()`: name and
+  value in any order, further attributes kept; `parseSmis()` reads the same lines) and, before
+  `</body-measurements>`, appends what the template lacks: measured `defaults` names, then the shoulder slope, then
+  book measures with a SeamlyMe id. No name goes in twice (any `<m … name="…"` element of the template counts, even over several lines). It keeps
+  the template's line endings (per line; an inserted `<notes>` gets CRLF if the file has any). `<notes>` gets
+  `notizText()` (date, how many file values are measured, which still come from the template or are defaults, book
+  measures outside the file names, the user's `notiz`); in the finished string an own earlier export note ("Eigene
+  Messung vom …") is replaced, a foreign note stays as it was behind `NOTIZ_VORLAGE` (" – Notiz der Vorlage: "),
+  and a missing `<notes>` is inserted before the first of `<unit>`/`<pm_system>`/`<personal>`/`<body-measurements>`.
+  Insert user text with `split().join()`, not `replace()` (`$&`, `$'` would be replacement patterns). Local date is
+  used on purpose (matches the Android version).
+- **Template (`vorlage`)**: must be in cm — `smisEinheit()` (no `<unit>` = cm, case-insensitive); `vorlageFehler()`
+  gives the reason a text is no usable template (no `<m>` lines, or not cm) and rejects it on import (`#datei`) and in
+  `sicherungLaden()`; `exportieren()` refuses a stored non-cm template with a message. Nothing is converted.
+  `dateiNamen()` (→ `DATEI`, set in `zeichne()`) = `defaults` names (value `"liste"`) ∪ template names (`"vorlage"`),
+  so `standardListe()`/`inDatei()` include the built-in names with a template too; `fehltInVorlage(k)` is a built-in
+  name missing from the template — unmeasured it is not in the file at all (the export question and the Ergebnis
+  list these separately). `sicherungLaden()` replaces the template only when the backup brings a usable one
+  (string, cm); otherwise the imported one stays, and its confirm text says which happens. "Vorlage entfernen" in the
+  Ergebnis (after a confirm) sets `vorlage = null` and returns to the same place via `ankerJetzt()`/`zumAnker()`.
+- **Export question & Ergebnis**: `exportieren()` asks once (`confirm`; it warns, never blocks). `dateiVerdacht()`
+  collects the "Neu messen" values that go into the file (`DATEI[id]` or a `seamlyId`), and `verdachtText()` lists
+  first those a pattern reads (`DATEN.schnitte`) with value and patterns, then the shoulder slope as its own line —
+  counting only the inputs of the route `winkelWeg()` currently takes (`winkelEingaben()`) — then the rest as "von
+  deinen Schnitten nicht gelesen"; "Nachmessen empfohlen" appears only as a count. The unmeasured file values
+  (`standardListe()`, split by `fehltInVorlage()`) follow in the same question. `ergebnisBlock()` shows "Davon N als
+  „Neu messen“ markiert (Verdacht)" (`V.datei` file names, slope counted once) with a button cycling through the cards
+  behind them via `neuSchritt(V.karten)`, and under the shoulder slope "Beruht auf Werten mit Verdacht …".
 
 ## Conventions
 
-- There is a parallel Android version; behaviour like the export format should stay in sync with it.
+- There is a parallel Android version; behaviour like the export format should stay in sync with it. Open there:
+  the template export changed here (measured `defaults` names and the shoulder slope appended, `<notes>` replaced or
+  inserted, template line endings kept, cm-only templates) — the Android version has to follow. The `.smis` without
+  a template is byte-identical to before.
 - The version appears in the file name and in `texts.fassung` ("Fassung 2.6 vom …") — update both on a release.
 - Page references "Buch S. …" refer to the book "Measurement Taking"; keep sources attributed in `texts.fassung`.
