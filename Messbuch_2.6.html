@@ -11,14 +11,14 @@
   --bg:#F3F2F6; --surface:#fff; --ink:#1D1A24; --muted:#6B6577;
   --plum:#4B2E5C; --onPlum:#fff; --tape:#F2C12E; --ok:#2E7D4F;
   --warn:#96600F; --bad:#B3261E; --line:#DAD6E0; --feld:#857E92;
-  --badBg:#FCEAE7; --warnBg:#FAEFD3; --okBg:#EAF5EC; --onBad:#fff; --onWarn:#fff;
+  --badBg:#FCEAE7; --warnBg:#FAEFD3; --okBg:#EAF5EC; --onBad:#fff; --onWarn:#fff; --onOk:#fff;
 }
 html{color-scheme:light}
 html[data-theme="dark"]{
   --bg:#16121B; --surface:#211B29; --ink:#EDE9F2; --muted:#A79FB4;
   --plum:#CBA7E3; --onPlum:#241B2C; --ok:#7BD3A2;
   --warn:#E0AE55; --bad:#F08B84; --line:#352C40; --feld:#75698A; --tape:#D4A82A;
-  --badBg:#3C2128; --warnBg:#372C1D; --okBg:#1F3127; --onBad:#2B1214; --onWarn:#2A1F08;
+  --badBg:#3C2128; --warnBg:#372C1D; --okBg:#1F3127; --onBad:#2B1214; --onWarn:#2A1F08; --onOk:#0F2618;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
@@ -116,6 +116,14 @@ button.breit{display:block;width:100%;margin-top:8px}
 .card.ok,.check.ok{background:var(--okBg);border-color:var(--ok)}
 .card.bad{box-shadow:inset 5px 0 0 var(--bad)} .card.warn{box-shadow:inset 5px 0 0 var(--warn)}
 .indexliste{display:flex;flex-direction:column;gap:6px;margin:4px 0 10px}
+/* Befund: neu messen, nachmessen empfohlen, bestätigt, grob geprüft, nicht gegengeprüft */
+.befund{margin:2px 0 8px;font-size:15px;line-height:1.45}
+.befund b{display:inline-block;padding:1px 9px;margin-right:6px;border-radius:6px;font-size:14px;border:1px solid transparent}
+.befund.neu b{background:var(--bad);color:var(--onBad);font-size:15px;letter-spacing:.02em}
+.befund.nach b{background:var(--warn);color:var(--onWarn)}
+.befund.stark b{background:var(--ok);color:var(--onOk)}
+.befund.grob b,.befund.ungeprueft b{border-color:var(--feld);color:var(--muted)}
+.pill.neu{background:var(--bad);color:var(--onBad);border-color:var(--bad)}
 .auffaellig{margin-top:12px;padding-top:8px;border-top:1px dashed var(--line)}
 .auffaellig .eintrag{margin-top:8px}
 button.pruefsprung{display:block;width:100%;text-align:left;min-height:44px;padding:9px 12px;
@@ -269,7 +277,7 @@ function laden(){
   }
   try{ auspacken(o || {}); }catch(e){ state = {}; vorlage = null; }
   Object.keys(state).forEach(k => { if(!BY[k]) delete state[k]; });
-  if(!({alle:1,datei:1,arm:1,offen:1,streu:1})[filter]) filter = "alle";
+  if(!({alle:1,datei:1,arm:1,offen:1,streu:1,neu:1})[filter]) filter = "alle";
 }
 function sichern(){
   const s = JSON.stringify({state, vorlage, dunkel, notiz, filter, gesichert});
@@ -432,10 +440,15 @@ function pruefungen(){
   // Jede Prüfung ruft add() genau einmal; nr bleibt dadurch über alle Durchläufe gleich.
   // ids = die betroffenen Maße für die Markierung: ohne eigene Liste alle, die die Prüfung
   // seit dem letzten add() gelesen hat. Fällt nur ein Teil davon auf, steht die Liste beim add().
+  // gut = die Maße, für die die Prüfung spricht: bei OK dieselben (bzw. alle gelesenen, wenn
+  // ids leer ist); wer nur für den Erklärtext liest oder teilweise passt, gibt die Liste selbst an.
   gelesen = {};
-  const add = (t,k,s,x,ids) => {
+  const einmal = (v,i,a) => a.indexOf(v) === i;
+  const add = (t,k,s,x,ids,gut) => {
+    const auto = Object.keys(gelesen);
+    if(!gut) gut = s !== "OK" ? [] : (ids && ids.length) ? ids : auto;
     R.push({nr:R.length, title:t, kind:k, status:s, text:x,
-            ids:(ids || Object.keys(gelesen)).filter((v,i,a) => a.indexOf(v) === i)});
+            ids:(ids || auto).filter(einmal), gut:gut.filter(einmal)});
     gelesen = {};
   };
 
@@ -839,11 +852,13 @@ function pruefungen(){
     const g = mittel("b_bustpoint_to_waist"), dd = g-senk;
     let st = (dd >= -0.5 && dd <= 3) ? "OK" : (dd >= -1.5 && dd <= 5) ? "WARN" : "BAD";
     let betr = st === "OK" ? [] : ["b_bustpoint_to_waist","height_bustpoint","height_waist_side"];
+    const verglichen = ["b_bustpoint_to_waist","height_bustpoint","height_waist_side"];
     let txt = "Gerade gemessen "+f1(g)+" cm, Höhenunterschied Brustpunkt–Taille "+f1(senk)+
       " cm, Unterschied "+f1(dd)+" cm. Die gerade Linie ist etwas länger als der senkrechte Abstand, weil der Brustpunkt vor der Taille liegt (Buch S. 71).";
     if(voll("bustpoint_to_lowbust","lowbust_to_waist_f")){
       const ueber = mittel("bustpoint_to_lowbust")+mittel("lowbust_to_waist_f");
       txt += " Am Körper entlang über die Unterbrust sind es "+f1(ueber)+" cm.";
+      verglichen.push("bustpoint_to_lowbust","lowbust_to_waist_f");
       if(g > ueber+1){ if(st === "OK") st = "WARN";
         betr = betr.concat(["b_bustpoint_to_waist","bustpoint_to_lowbust","lowbust_to_waist_f"]);
         txt += " Die gerade Linie sollte nicht deutlich länger sein als der Weg am Körper."; }
@@ -852,7 +867,7 @@ function pruefungen(){
       txt += " Mit "+nm("b_bustpoint_to_neck_side")+" ("+f1(mittel("b_bustpoint_to_neck_side"))+
         " cm) ergibt das "+f1(mittel("b_bustpoint_to_neck_side")+g)+
         " cm vordere Länge über die Brust; die Buch-Tabelle nennt bei 160–165 cm Körpergröße etwa 40–41 cm für Cup A (S. 121).";
-    add("Brustpunkt bis Taille","Geometrie",st,txt,betr);
+    add("Brustpunkt bis Taille","Geometrie",st,txt,betr,st === "OK" ? verglichen : []);   // Halspunkt nur im Text
   }
 
   if(!voll("b_waist_to_topthigh_side","b_outside_leg","leg_waist_side_to_floor","height_ankle"))
@@ -865,6 +880,36 @@ function pruefungen(){
     add("Seitenlinie Taille bis Knöchel in zwei Stücken","Geometrie", ad<=1.5?"OK":ad<=3?"WARN":"BAD",
       "Taille bis Oberschenkel oben plus Außenbein ergibt "+f1(summe)+" cm, Taille bis Boden minus Knöchelhöhe "+
       f1(ganz)+" cm, Abweichung "+f1(dd)+" cm. Beide Wege laufen an der Seite (Buch S. 113).");
+  }
+
+  // Eigene Prüfungen, nicht aus dem Buch: Höhe der Oberschenkel-Linie von oben und von unten. Die
+  // Längen am Körper sind etwas länger als senkrecht – von unten kommt man daher etwas zu hoch,
+  // von oben etwas zu tief an; die Kniehöhe ist an der Kniekehle gemessen.
+  if(!voll("height_waist_side","b_waist_to_topthigh_side","height_knee","b_topthigh_to_knee_side"))
+    add("Oberschenkel-Linie von oben und von unten","Geometrie","OPEN",
+      "Braucht "+namen("height_waist_side","b_waist_to_topthigh_side","height_knee","b_topthigh_to_knee_side")+".");
+  else{
+    const oben = mittel("height_waist_side")-mittel("b_waist_to_topthigh_side");
+    const unten = mittel("height_knee")+mittel("b_topthigh_to_knee_side");
+    const dd = unten-oben;
+    add("Oberschenkel-Linie von oben und von unten","Geometrie",
+      (dd >= -1.5 && dd <= 4.5) ? "OK" : (dd >= -3 && dd <= 6.5) ? "WARN" : "BAD",
+      "Taillenhöhe minus Taille bis Oberschenkel oben ergibt "+f1(oben)+" cm, Kniehöhe plus Oberschenkel oben bis Knie "+
+      f1(unten)+" cm, Unterschied "+f1(dd)+" cm. Von unten liegt die Linie meist 0–4 cm höher, weil beide Längen am "+
+      "Körper entlang etwas länger sind als senkrecht (eigene Prüfung, Längen nach Buch S. 113).");
+  }
+
+  if(!voll("b_outside_leg","height_knee","b_topthigh_to_knee_side","height_ankle"))
+    add("Außenbein gegen Oberschenkel-Linie","Geometrie","OPEN",
+      "Braucht "+namen("b_outside_leg","height_knee","b_topthigh_to_knee_side","height_ankle")+".");
+  else{
+    const senk = mittel("height_knee")+mittel("b_topthigh_to_knee_side")-mittel("height_ankle");
+    const dd = mittel("b_outside_leg")-senk;
+    add("Außenbein gegen Oberschenkel-Linie","Geometrie",
+      (dd >= -1.5 && dd <= 4) ? "OK" : (dd >= -3 && dd <= 6) ? "WARN" : "BAD",
+      "Außenbein gemessen "+f1(mittel("b_outside_leg"))+" cm, Höhe der Oberschenkel-Linie (Kniehöhe plus Oberschenkel "+
+      "oben bis Knie) minus Knöchelhöhe "+f1(senk)+" cm, Unterschied "+f1(dd)+" cm. Am Bein entlang ist es 0–3 cm "+
+      "länger als senkrecht (eigene Prüfung, Längen nach Buch S. 113).");
   }
 
   if(!voll("b_inside_leg","b_crotch_height","height_ankle"))
@@ -906,21 +951,22 @@ function pruefungen(){
     const t = "Vorder- und Rückenanteil ergeben den Umfang";
     const P = [["bust_circ","b_bust_arc_f","b_bust_arc_b"],["waist_circ","b_waist_arc_f","b_waist_arc_b"],
                ["highhip_circ","b_highhip_arc_f","b_highhip_arc_b"],["hip_circ","b_hip_arc_f","b_hip_arc_b"]];
-    const auf = [], gut = [], betr = []; let have = 0, worst = 0;
+    const auf = [], gut = [], betr = [], passt = []; let have = 0, worst = 0;
     P.forEach(function(p){
       if(!voll(p[0],p[1],p[2])) return;
       have++;
       const v = mittel(p[1]), h = mittel(p[2]), dd = v+h-mittel(p[0]);
       worst = Math.max(worst, Math.abs(dd));
-      if(Math.abs(dd) > 1) betr.push(p[0],p[1],p[2]);
+      if(Math.abs(dd) > 1) betr.push(p[0],p[1],p[2]); else passt.push(p[0],p[1],p[2]);
       (Math.abs(dd) > 1 ? auf : gut).push(nm(p[0])+": vorn "+f1(v)+" + hinten "+f1(h)+" = "+f1(v+h)+
         " gegen "+f1(mittel(p[0]))+" cm");
     });
     if(!have) add(t,"Geometrie","OPEN","Braucht je Höhe den Umfang und beide Anteile (optionale Gruppe).");
     else if(auf.length) add(t,"Geometrie", worst<=2?"WARN":"BAD",
-      auf.join("; ")+". Vermutlich lagen die Seitenpunkte vorn und hinten nicht an derselben Stelle (Buch S. 24–25).",betr);
+      auf.join("; ")+". Vermutlich lagen die Seitenpunkte vorn und hinten nicht an derselben Stelle (Buch S. 24–25).",betr,passt);
     else add(t,"Geometrie","OK",gut.join("; ")+
-      ". Laut Buch ist bis zum Bauch meist der Vorderteil größer, am Becken sind beide etwa gleich, an der Hüfte ist der Rückenteil größer (S. 25).");
+      ". Laut Buch ist bis zum Bauch meist der Vorderteil größer, am Becken sind beide etwa gleich, an der Hüfte ist der Rückenteil größer (S. 25).",
+      undefined,passt);
   })();
 
   (function(){
@@ -963,7 +1009,8 @@ function pruefungen(){
         zus += " Für #NeckAtCollarTop kannst du deshalb den mittleren Halsumfang nehmen.";
     }
     add(t,"Geometrie", prob.length?"WARN":"OK", teile.join(", ")+" cm."+
-      (prob.length ? " Auffällig: "+prob.join("; ")+" (Buch S. 44)." : "")+zus, betr);
+      (prob.length ? " Auffällig: "+prob.join("; ")+" (Buch S. 44)." : "")+zus, betr,
+      prob.length ? [] : ["neck_circ","b_neck_mid_circ","b_neck_top_circ"].filter(hat));   // Kragen nur im Text
   })();
 
   if(!voll("b_hand_circ","arm_wrist_circ"))
@@ -1435,7 +1482,9 @@ function karte(x){
     sc.appendChild(document.createTextNode(fuer.join(", ")));
     c.appendChild(sc);
   }
-  // Index der auffälligen Prüfungen (K1, P1 …) mit den zusammenhängenden Maßen, füllt markierungenZeichnen()
+  // Befund (neu messen, bestätigt …) und Index der auffälligen Prüfungen, füllt markierungenZeichnen()
+  const bf = el("div","befund"); bf.id = "befund_" + x.id; bf.hidden = true;
+  c.appendChild(bf);
   const idx = el("div","indexliste"); idx.id = "idx_" + x.id; idx.hidden = true;
   c.appendChild(idx);
   const an = el("div");                          // Anleitung immer zuerst
@@ -1544,22 +1593,24 @@ function werteInKarte(id){
 function werteAktualisieren(id){ werteInKarte(id); }
 
 /* Kopfzeile, Filter, Inhalt */
-const FILTERNAME = {alle:"Alle Maße", datei:"Nur Maßdatei", arm:"Nur Armloch und Ärmel", offen:"Nur offene", streu:"Nur zu große Streuung"};
-function passtFilter(x){
+const FILTERNAME = {alle:"Alle Maße", datei:"Nur Maßdatei", arm:"Nur Armloch und Ärmel", offen:"Nur offene", neu:"Nur neu zu messen", streu:"Nur zu große Streuung"};
+function passtFilter(x, neu){
   if(filter === "datei") return inDatei(x);
   if(filter === "arm") return !!ARMLOCH[x.id];
   if(filter === "offen") return !hat(x.id);
+  if(filter === "neu") return neu.indexOf(x.id) >= 0;
   if(filter === "streu"){ const s = streuung(x.id); return !isNaN(s) && s > grenze(x); }
   return true;
 }
 function filterAnwenden(){
   let gesamt = 0;
+  const neu = filter === "neu" ? neuZuMessen() : null;
   DATEN.groups.forEach(function(g){
     let sichtbar = 0;
     M.forEach(function(x){
       if(x.group !== g.id) return;
       const c = document.getElementById("karte_" + x.id); if(!c) return;
-      const ok = passtFilter(x); c.hidden = !ok; if(ok) sichtbar++;
+      const ok = passtFilter(x, neu); c.hidden = !ok; if(ok) sichtbar++;
     });
     gesamt += sichtbar;
     const h = document.getElementById("gruppe_" + g.id), i = document.getElementById("intro_" + g.id);
@@ -1584,6 +1635,15 @@ function pillsZeichnen(c){
     fb.setAttribute("aria-label", "Filter „" + FILTERNAME[filter] + "“ aufheben");
     pills.appendChild(fb);
   }
+  const neu = neuZuMessen();
+  if(neu.length){                       // reihum zur nächsten Karte, die neu gemessen werden muss
+    pills.appendChild(knopf("pill neu", neu.length + " neu messen", function(){
+      const karten = neu.map(function(id){ return document.getElementById("karte_" + id); }).filter(Boolean);
+      if(karten.some(function(k){ return k.hidden; })) alleZeigen();
+      karten.sort(function(a,b){ return a.getBoundingClientRect().top - b.getBoundingClientRect().top; });
+      neuSchritt = (neuSchritt + 1) % karten.length;
+      springe(karten[neuSchritt].id); }));
+  }
   [["ok", c.OK, "passen"],["warn", c.WARN, "prüfen"],
    ["bad", c.BAD, c.BAD === 1 ? "Konflikt" : "Konflikte"],["open", c.OPEN, "offen"]]
    .forEach(function(p){
@@ -1593,6 +1653,7 @@ function pillsZeichnen(c){
        springe(erste ? erste.id : "pruefungen"); }));
    });
 }
+let neuSchritt = -1;                    // zuletzt angesprungene Karte der Reihe „neu messen“
 function alleZeigen(){
   filter = "alle"; sichern(); filterAnwenden(); pillsZeichnen(zaehlung()); kopfhoehe();
 }
@@ -1725,15 +1786,82 @@ function zeigeMass(id){
   if(c && c.hidden) alleZeigen();                 // der Filter versteckt die Karte gerade
   springe("karte_" + id);
 }
+/* ── Was muss neu gemessen werden? ─────────────────────────
+   Bestätigt ist ein Maß, wenn eine bestandene Gleichungsprüfung für es spricht: zwei unabhängige
+   Wege, die dieselbe Strecke ergeben müssen. Reihenfolge- und Richtwertprüfungen prüfen nur grob,
+   die Wiederholgenauigkeit gar nicht. In einer auffälligen Prüfung sind die Maße verdächtig, die
+   nicht bestätigt sind; sind darunter grob geprüfte und ungeprüfte, bleiben die ungeprüften.
+   Sind alle bestätigt, lässt sich nichts eingrenzen – dann gelten alle als verdächtig. */
+const GLEICHUNG = {
+  "Vorderer Weg Brust → Unterbrust → Taille":1, "Taille bis Boden gegen Taillenhöhe":1,
+  "Beckenkamm von oben und von unten":1, "Hüfte von oben und von unten":1,
+  "Schulterlänge aus Tiefe und Abfall":1, "Halsbreite vorn = hinten":1, "Schrittlänge vorn und hinten":1,
+  "Schritttiefe auf zwei Wegen":1, "Unterbrust bis Taille auf zwei Wegen":1, "Brustpunkt bis Taille":1,
+  "Seitenlinie Taille bis Knöchel in zwei Stücken":1, "Oberschenkel-Linie von oben und von unten":1,
+  "Außenbein gegen Oberschenkel-Linie":1, "Innenbein gegen Schritthöhe":1,
+  "Schritttiefe aus Außen- und Innenbein":1, "Innenarm gegen Außenarm":1,
+  "Vorder- und Rückenanteil ergeben den Umfang":1, "Armlochumfang gegen die beiden Bögen":1
+};
+function befunde(L){
+  const stark = {}, grob = {}, verdacht = {};
+  L.forEach(function(p){
+    if(p.kind === "Messqualität") return;
+    const ziel = GLEICHUNG[p.title] ? stark : grob;
+    p.gut.forEach(function(id){ (ziel[id] = ziel[id] || []).push(p); });
+  });
+  L.forEach(function(p){
+    const ids = betroffene(p); if(!ids.length) return;
+    const offen = ids.filter(function(id){ return !stark[id]; });
+    const roh = offen.filter(function(id){ return !grob[id]; });
+    const v = roh.length ? roh : offen.length ? offen : ids;
+    v.forEach(function(id){
+      const b = verdacht[id] = verdacht[id] || {neu:[], nach:[]};
+      (p.status === "BAD" ? b.neu : b.nach).push({p:p, anzahl:v.length, eingegrenzt:offen.length > 0});
+    });
+  });
+  return {stark:stark, grob:grob, verdacht:verdacht};
+}
+function neuZuMessen(F){
+  F = F || befunde(pruefungen());
+  return M.filter(function(x){ const v = F.verdacht[x.id]; return v && v.neu.length; }).map(function(x){ return x.id; });
+}
+function titelListe(liste){
+  const t = liste.map(function(p){ return p.title; }).filter(function(v,i,a){ return a.indexOf(v) === i; });
+  return t.slice(0,2).join(" · ") + (t.length > 2 ? " und " + (t.length-2) + " weitere" : "");
+}
+function befundZeichnen(x, F, auffaellig){
+  const bf = document.getElementById("befund_" + x.id); if(!bf) return;
+  bf.innerHTML = ""; bf.className = "befund"; bf.hidden = !hat(x.id);
+  if(bf.hidden) return;
+  const v = F.verdacht[x.id];
+  const grund = function(e){
+    return e.p.zeichen + ": " + (!e.eingegrenzt ? "alle Maße sind anderswo bestätigt, nicht eingrenzbar"
+      : e.anzahl === 1 ? "einziges Maß, das keine andere Prüfung bestätigt"
+      : "eins von " + e.anzahl + " Maßen, die keine andere Prüfung bestätigt");
+  };
+  let art, kurz, text;
+  if(v && v.neu.length){ art = "neu"; kurz = "Neu messen"; text = v.neu.concat(v.nach).map(grund).join("; "); }
+  else if(v && v.nach.length){ art = "nach"; kurz = "Nachmessen empfohlen"; text = v.nach.map(grund).join("; "); }
+  else if(F.stark[x.id]){ art = "stark"; kurz = "✓ bestätigt";
+    text = "durch " + titelListe(F.stark[x.id]) + (auffaellig ? " – nicht nachmessen" : ""); }
+  else if(F.grob[x.id]){ art = "grob"; kurz = "grob geprüft"; text = "nur Reihenfolge oder Richtwert: " + titelListe(F.grob[x.id]); }
+  else { art = "ungeprueft"; kurz = "nicht gegengeprüft"; text = "keine Prüfung vergleicht dieses Maß mit anderen"; }
+  bf.classList.add(art);
+  bf.appendChild(el("b", null, kurz));
+  bf.appendChild(document.createTextNode(text));
+}
 function markierungenZeichnen(){
-  const je = {};
-  pruefungen().forEach(function(p){
+  const L = pruefungen(), F = befunde(L), je = {};
+  L.forEach(function(p){
     betroffene(p).forEach(function(id){ (je[id] = je[id] || []).push(p); });
   });
   M.forEach(function(x){
     const c = document.getElementById("karte_" + x.id);
     const idx = document.getElementById("idx_" + x.id), box = document.getElementById("auff_" + x.id);
     if(!c || !idx || !box) return;
+    befundZeichnen(x, F, !!je[x.id]);
+    const v = F.verdacht[x.id];
+    c.classList.toggle("neumessen", !!(v && v.neu.length));
     const liste = je[x.id] || [];
     // rot = Konflikt, gelb = prüfen, grün = gemessen und unauffällig, ohne Wert neutral
     const st = liste.some(function(p){ return p.status === "BAD"; }) ? "bad" : liste.length ? "warn" : hat(x.id) ? "ok" : "";

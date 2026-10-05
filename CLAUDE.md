@@ -82,6 +82,15 @@ When touching a check in `pruefungen()`, compare its results (title/kind/status/
   at fault (ordered chains, per-item lists, values read only for the explanation text), and `[]` for fit hints that
   don't doubt a measurement. Kinds `Richtwert`/`Messqualität` judge each measure on its own (`einzeln()`), so their
   measures aren't shown as belonging together.
+- **What to re-measure** (`befunde()`): each check entry also carries `gut` — the measures a passing check vouches
+  for (default: its compared measures; checks that read values only for the explanation text, or pass only in parts,
+  pass `gut` explicitly as 6th `add()` argument). Passing checks listed in `GLEICHUNG` (two independent ways to the
+  same length) confirm strongly; other passing checks (order, ranges, Richtwerte) only roughly; `Messqualität` not
+  at all. In a BAD/WARN check the suspects are the affected measures without strong confirmation, narrowed to those
+  without any confirmation when possible; if all are confirmed, all are suspects. BAD suspects = "Neu messen"
+  (card badge, class `neumessen`, header pill cycling through them via `neuSchritt`, filter `neu`), WARN suspects =
+  "Nachmessen empfohlen"; other measured cards show "✓ bestätigt", "grob geprüft" or "nicht gegengeprüft"
+  (`befund_<id>`). A new check that compares two independent ways to the same quantity belongs in `GLEICHUNG`.
 - **Marking & navigation**: `markierungenZeichnen()` gives each card a traffic-light class like the check entries:
   `bad` (in any BAD check), `warn` (WARN only), `ok` (measured, nothing flagged), none without a value. Flagged cards
   get an index line per check at the top (`idx_<id>`: K/P chip + the other measures involved — same chip = measures
