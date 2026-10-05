@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`Messbuch_2.6.html` is a single, fully self-contained offline web app (German UI) for taking one's own body
+`Messbuch_2.7.html` is a single, fully self-contained offline web app (German UI) for taking one's own body
 measurements alone, three times per measure, cross-checking them, and exporting a SeamlyMe `.smis` measurement
 file for the "Hexen" sewing patterns (Bluse 1/2, Bolero, Strümpfe, Hexenhut …). It must keep working when opened
 straight from disk (`file://`) on a phone: no build step, no dependencies, no network, no external assets.
@@ -13,17 +13,17 @@ Identifiers, comments and UI text are German; keep it that way.
 
 ## Working with the file — read this first
 
-The file is ~12.5 MB but only ~1950 lines, with **CRLF line endings** (keep them; scripts that write the file must
+The file is ~12.6 MB but only ~2830 lines, with **CRLF line endings** (keep them; scripts that write the file must
 emit `\r\n`). **One line alone is ~12.4 MB**: `const DATEN = {...};`, the first line of the `<script>` block, holding
 JSON with 131 base64 images. Never `Read`/`cat`/`grep` without limits on the whole file or print that line — use line
 ranges that skip it, `cut -c1-200`, or parse the data with Node. Line numbers shift with edits, so look them up:
 
 ```bash
-D=$(grep -n -m1 '^const DATEN = ' Messbuch_2.6.html | cut -d: -f1)   # CSS and HTML skeleton above, app code below
-grep -n 'function ' Messbuch_2.6.html | cut -c1-160
+D=$(grep -n -m1 '^const DATEN = ' Messbuch_2.7.html | cut -d: -f1)   # CSS and HTML skeleton above, app code below
+grep -n 'function ' Messbuch_2.7.html | cut -c1-160
 
 # Inspect/modify DATEN
-node -e 'const fs=require("fs");const L=fs.readFileSync("Messbuch_2.6.html","utf8").split("\r\n");
+node -e 'const fs=require("fs");const L=fs.readFileSync("Messbuch_2.7.html","utf8").split("\r\n");
 const i=L.findIndex(l=>l.startsWith("const DATEN = "));
 const D=JSON.parse(L[i].replace(/^const DATEN = /,"").replace(/;\s*$/,""));
 console.log(Object.keys(D))'
@@ -35,9 +35,9 @@ lines byte-identical.
 ## Verification (there are no tests)
 
 ```bash
-# Syntax check of the script block
-A=$(grep -n $'^<script>\r$' Messbuch_2.6.html | cut -d: -f1); B=$(grep -n $'^</script>\r$' Messbuch_2.6.html | cut -d: -f1)
-awk -v a=$A -v b=$B 'NR>a && NR<b' Messbuch_2.6.html > /tmp/app.js && node --check /tmp/app.js
+# Syntax check of the script block (the one-line theme script in <head> doesn't match these patterns)
+A=$(grep -n $'^<script>\r$' Messbuch_2.7.html | cut -d: -f1); B=$(grep -n $'^</script>\r$' Messbuch_2.7.html | cut -d: -f1)
+awk -v a=$A -v b=$B 'NR>a && NR<b' Messbuch_2.7.html > /tmp/app.js && node --check /tmp/app.js
 ```
 
 For behaviour, load the page in headless Chromium via Playwright (`file://` URL, phone-sized viewport), seed
@@ -46,7 +46,7 @@ input and check `#count`, `#pruefbox` and the export. Chromium is preinstalled a
 To mimic iOS Safari (no scroll anchoring), inject `*{overflow-anchor:none !important}`.
 
 When touching a check in `pruefungen()`, compare its results (title/kind/status/text) against
-`git show HEAD:Messbuch_2.6.html` over many randomly perturbed states — statuses must not change by accident.
+`git show HEAD:Messbuch_2.7.html` over many randomly perturbed states — statuses must not change by accident.
 
 ## Data (`DATEN`)
 
@@ -73,8 +73,28 @@ When touching a check in `pruefungen()`, compare its results (title/kind/status/
   Android version. Persisted to `localStorage` under `messbuch_html_v1` — do not rename, existing users' data lives
   there. If storage is unavailable (some browsers for `file://`), falls back to `window.name` (prefix `MESSBUCH1:`)
   and shows a warning banner. Manual backup/restore is a JSON file `{app:"Messbuch", format:2, …}`; keep it backward
-  compatible. `wach` (keep screen on) and `zuletzt` (last edited measure, for "Weiter bei …") belong to the device:
-  they are stored by `sichern()` only and must not go into `sicherungText()`.
+  compatible. `wach` (keep screen on), `zuletzt` (last edited measure, for "Weiter bei …"), `ungesichert`, `seit`/
+  `seitZeit` (what changed since the last backup — measure ids, `notiz`, `vorlage`, `alles` — and since when) and
+  `zeit` belong to the device: `standText()` writes them for `sichern()` only; they must not go into `sicherungText()`.
+  - Entries are normalized by `eintrag()` (always three strings; a lone value becomes Messung 1, anything else empty)
+    in `auspacken()`, `sicherungLaden()` and `gemessen()`, so a broken stored value cannot stop the app; the start
+    `zeichne()` sits in a try/catch that still offers saving/loading a backup.
+  - Ids this version doesn't know (from a newer one) are kept in `state` and in the backup; everything counts and
+    renders via `M`/`BY`, so they are simply carried along. Don't delete unknown ids.
+  - `laden()` reads localStorage and `window.name` and takes the newer one (`zeit`); if `window.name` wins it saves
+    at once. `gespeichert` is the last string this tab wrote or read: a `storage` event for `KEY` (not `KEY+"_test"`/
+    `"_vorher"`) or becoming visible with a different stored string runs `uebernehmen()` (reload, redraw, back to
+    the same place via `ankerJetzt()`/`zumAnker()`, short `meldung()`); `uebernimmt` keeps `sichern()` from writing
+    back meanwhile, so two tabs can't ping-pong.
+  - Undo: before "Sicherung laden", "Messungen löschen" and "Alles zurücksetzen", `merkeVorher(art)` keeps the whole
+    `standText()` in memory and under `KEY+"_vorher"`; the Sicherung section offers "Rückgängig: Stand vor …"
+    (`rueckgaengig()`, which itself keeps the current state the same way).
+  - Backup reminders stay quiet: `geaendert(was)` marks changes, `gesichertStand(datum)` clears them (saving a
+    backup, loading one — then `gesichert` is the backup's date). The Ergebnis says what changed since (`seitText()`),
+    after an export a button offers the backup (`nachExport`, no second automatic download), and at start
+    `mahnungZeigen()` shows `#sicherungsmahnung` once if changes are older than a day. No header pill while typing.
+  - Theme: the page starts dark (`<html data-theme="dark">`, dark `theme-color`); a one-line script in `<head>`
+    switches to light before the first paint if the stored state says so. `themaAnwenden()` sets both later.
 - **Rendering**: no framework. `zeichne()` rebuilds `#main` completely from DATEN + state; helpers `el()`, `knopf()`,
   `karte()` (one measure card; the line above the inputs starts with the measure name, `massname`, since with the
   keyboard open often only that line is visible). Small updates go through `werteInKarte()`, `pillsZeichnen()`,
@@ -195,5 +215,7 @@ When touching a check in `pruefungen()`, compare its results (title/kind/status/
   the template export changed here (measured `defaults` names and the shoulder slope appended, `<notes>` replaced or
   inserted, template line endings kept, cm-only templates) — the Android version has to follow. The `.smis` without
   a template is byte-identical to before.
-- The version appears in the file name and in `texts.fassung` ("Fassung 2.6 vom …") — update both on a release.
+- The version appears in the file name and in `texts.fassung` ("Fassung 2.7 vom …") — update both on a release.
+- `CHANGELOG.md` (German, for the user) lists what changed per version, what the Android version has to follow, known
+  limits and decisions; add to it with every change.
 - Page references "Buch S. …" refer to the book "Measurement Taking"; keep sources attributed in `texts.fassung`.
